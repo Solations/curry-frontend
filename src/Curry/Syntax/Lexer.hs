@@ -439,7 +439,6 @@ reservedOps = Map.fromList
   , ("<-", LeftArrow  )
   , ("->", RightArrow )
   , ("~" , Tilde      )
-  , ("$(", SplInit    )
   ]
 
 -- |Map of reserved and special operators
@@ -629,6 +628,7 @@ lexToken :: Lexer Token a
 lexToken suc _    sp []       = suc sp (tok EOF) sp []
 lexToken suc fail sp cs@(c:s)
   | take 3 cs == "#-}" = suc sp (tok PragmaEnd) (incrSpan sp 3) (drop 3 cs)
+  | take 2 cs == "$("  = suc sp (tok SplInit) (incrSpan sp 2) (drop 2 cs)
   | c == '('           = token LeftParen
   | c == ')'           = token RightParen
   | c == ','           = token Comma
