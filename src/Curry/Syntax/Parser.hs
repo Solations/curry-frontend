@@ -954,7 +954,7 @@ expr3 = foldl mkRecordUpdate <$> expr4 <*> many recUpdate
 
 expr4 :: Parser a Token (Expression ())
 expr4 = choice
-  [constant, anonFreeVariable, variable, parenExpr, listExpr]
+  [constant, anonFreeVariable, variable, parenExpr, listExpr, spliceExpr]
 
 constant :: Parser a Token (Expression ())
 constant = mkLiteral <$> spanPosition <*> literal
@@ -973,6 +973,10 @@ variable = qFunId <**> optRecord
           in updateEndPos $ Record spi () qid fs
         mkVariable qid = Variable (fromSrcSpan (getSrcSpan qid)) () qid
 
+-- Add splicing here... Wir müssen Dollar gefolgt von left parenthesis erkennen...
+-- Doesn't it make more sense to have a very own spliceExpr function or something like that?
+-- The way, I understand this function we are already in the parenthesis, so how would we recognise the splice in the first place?
+-- And if we had an spliceExpr function, do we need one for Declarations as well?
 parenExpr :: Parser a Token (Expression ())
 parenExpr = fmap updateSpanWithBrackets (parensSp pExpr)
   where
@@ -1398,6 +1402,25 @@ backquotesSp p = (\sp1 b sp2 -> (b, sp1, sp2))
                    <*> p
                    <*> spanPosition <*-> expectBackquote
 
+
+-- ---------------------------------------------------------------------------
+-- Splice combinators
+-- ---------------------------------------------------------------------------
+
+splice :: Parser a Token b -> Parser a Token b
+splice p = between splInit p rightParen
+
+spliceSp :: Parser a Token b -> Parser a Token (b, Span, Span)
+spliceSp p = (\sp1 b sp2 -> (b, sp1, sp2))
+                <$> tokenSpan SplInit
+                <*> p
+                <*> tokenSpan RightParen
+
+spliceExpr :: Parser a Token (Expression())
+spliceExpr = mkSplice <$> spliceSp expr0 
+  where
+    mkSplice (exp, sp1, sp2) = Splice NoSpanInfo exp
+
 -- ---------------------------------------------------------------------------
 -- Simple token parsers
 -- ---------------------------------------------------------------------------
@@ -1456,3 +1479,6 @@ leftBrace = token LeftBrace
 
 rightBrace :: Parser a Token Attributes
 rightBrace = token RightBrace
+
+splInit :: Parser a Token Attributes
+splInit = token SplInit

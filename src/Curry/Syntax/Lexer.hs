@@ -202,6 +202,7 @@ data Category
   | RightArrow   -- ->
   | Tilde        -- ~
   | DoubleArrow  -- =>
+  | SplInit      -- $(
 
   -- special identifiers
   | Id_as
@@ -317,6 +318,7 @@ instance Show Token where
   showsPrec _ (Token Colon              _) = showsEscaped ":"
   showsPrec _ (Token DotDot             _) = showsEscaped ".."
   showsPrec _ (Token DoubleArrow        _) = showsEscaped "=>"
+  showsPrec _ (Token SplInit            _) = showsEscaped "$("
   showsPrec _ (Token DoubleColon        _) = showsEscaped "::"
   showsPrec _ (Token Equals             _) = showsEscaped "="
   showsPrec _ (Token Backslash          _) = showsEscaped "\\"
@@ -437,6 +439,7 @@ reservedOps = Map.fromList
   , ("<-", LeftArrow  )
   , ("->", RightArrow )
   , ("~" , Tilde      )
+  , ("$(", SplInit    )
   ]
 
 -- |Map of reserved and special operators
