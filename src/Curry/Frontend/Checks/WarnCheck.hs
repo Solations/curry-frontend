@@ -804,8 +804,10 @@ processCons qs@(q:_) = do
   defaults     = [ shiftPat q' | q' <- qs, isVarPat (firstPat q') ]
   -- Pattern for a non-matched constructors
   defaultPat c = (mkPattern c : replicate (length (snd3 q) - 1) wildPat, [])
-  mkPattern  c = ConstructorPattern NoSpanInfo ()
-                  (qualifyLike (fst $ head used_cons) (constrIdent c))
+  mkPattern  c = case used_cons of
+    []      -> internalError "Checks.WarnCheck.processCons.mkPattern: no used constructors"
+    (c1: _) -> ConstructorPattern NoSpanInfo ()
+                  (qualifyLike (fst c1) (constrIdent c))
                   (replicate (length $ constrTypes c) wildPat)
 
 -- |Construct exhaustive patterns starting with the used constructors
