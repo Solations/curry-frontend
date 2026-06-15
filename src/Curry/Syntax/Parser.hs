@@ -1416,10 +1416,22 @@ spliceSp p = (\sp1 b sp2 -> (b, sp1, sp2))
                 <*> p
                 <*> tokenSpan RightParen
 
+
+-- I don't get why we use expr0 here, I also don't get how we found out this actually has to be a splice...
+-- I think I have to understand the parser better...
 spliceExpr :: Parser a Token (Expression())
 spliceExpr = mkSplice <$> spliceSp expr0 
   where
-    mkSplice (exp, sp1, sp2) = Splice NoSpanInfo exp
+    mkSplice (exp, sp1, sp2) = ExprSplice NoSpanInfo (updateSpanWithSplice (exp, sp1, sp2))
+
+updateSpanWithSplice :: HasSpanInfo a => (a, Span, Span) -> a
+updateSpanWithSplice (ex, sp1, sp2) =
+  let ss = getSrcInfoPoints ex
+      s  = getPosition sp1
+      e  = end sp2
+      f  = file s
+      spi = spanInfo (Span f s e) (sp1 : (ss ++ [sp2]))
+  in setSpanInfo spi ex
 
 -- ---------------------------------------------------------------------------
 -- Simple token parsers

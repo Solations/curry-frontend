@@ -249,7 +249,8 @@ checkModule :: Options -> CompEnv (CS.Module ())
 checkModule opts mdl = do
   _   <- dumpCS DumpParsed mdl
   exc <- extensionCheck  opts mdl >>= dumpCS DumpExtensionChecked
-  tsc <- typeSyntaxCheck opts exc >>= dumpCS DumpTypeSyntaxChecked
+  spc <- spliceCheck     opts exc   -- Do we need a dumpCs here too? Does this actually work? I'm not entirely sure...
+  tsc <- typeSyntaxCheck opts spc >>= dumpCS DumpTypeSyntaxChecked
   kc  <- kindCheck       opts tsc >>= dumpCS DumpKindChecked
   sc  <- syntaxCheck     opts kc  >>= dumpCS DumpSyntaxChecked
   cmc <- caseModeCheck   opts sc  >>= dumpCS DumpCaseModeChecked

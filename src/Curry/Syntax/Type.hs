@@ -318,7 +318,7 @@ data Expression a
   | Do                SpanInfo LayoutInfo [Statement a] (Expression a)
   | IfThenElse        SpanInfo (Expression a) (Expression a) (Expression a)
   | Case              SpanInfo LayoutInfo CaseType (Expression a) [Alt a]
-  | Splice            SpanInfo (Expression a)
+  | ExprSplice            SpanInfo (Expression a)
     deriving (Eq, Read, Show, Generic, Binary)
 
 -- |Infix operation
@@ -449,7 +449,7 @@ instance Functor Expression where
   fmap f (IfThenElse p e1 e2 e3) =
     IfThenElse p (fmap f e1) (fmap f e2) (fmap f e3)
   fmap f (Case p li ct e as) = Case p li ct (fmap f e) (map (fmap f) as)
-  fmap f (Splice p e) = Splice p (fmap f e) 
+  fmap f (ExprSplice p e) = ExprSplice p (fmap f e) 
 
 instance Functor InfixOp where
   fmap f (InfixOp a op) = InfixOp (f a) op
@@ -911,7 +911,7 @@ instance HasSpanInfo (Expression a) where
   getSpanInfo (Do sp _ _ _) = sp
   getSpanInfo (IfThenElse sp _ _ _) = sp
   getSpanInfo (Case sp _ _ _ _) = sp
-  getSpanInfo (Splice sp _ ) = sp
+  getSpanInfo (ExprSplice sp _ ) = sp
 
   setSpanInfo sp (Literal _ a l) = Literal sp a l
   setSpanInfo sp (Variable _ a v) = Variable sp a v
@@ -937,7 +937,7 @@ instance HasSpanInfo (Expression a) where
   setSpanInfo sp (Do _ li stms e) = Do sp li stms e
   setSpanInfo sp (IfThenElse _ e1 e2 e3) = IfThenElse sp e1 e2 e3
   setSpanInfo sp (Case _ li ct e as) = Case sp li ct e as
-  setSpanInfo sp (Splice _ e) = Splice sp e
+  setSpanInfo sp (ExprSplice _ e) = ExprSplice sp e
 
   updateEndPos e@(Literal _ _ _) = e
   updateEndPos e@(Variable _ _ v) =
@@ -1001,7 +1001,7 @@ instance HasSpanInfo (Expression a) where
   updateEndPos e@(Case (SpanInfo _ (s:ss)) _ _ _ _) =
     setEndPosition (end (last (s:ss))) e
   updateEndPos e@(Case _ _ _ _ _) = e
-  updateEndPos e@(Splice _ _) = e -- This might be 100% incorrect, loooool 
+  updateEndPos e@(ExprSplice _ _) = e -- This might be 100% incorrect, loooool 
 
   getLayoutInfo (Let _ li _ _) = li
   getLayoutInfo (Do _ li _ _) = li

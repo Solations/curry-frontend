@@ -27,6 +27,7 @@ import qualified Curry.Frontend.Checks.SyntaxCheck       as SC  (syntaxCheck)
 import qualified Curry.Frontend.Checks.TypeCheck         as TC  (typeCheck)
 import qualified Curry.Frontend.Checks.TypeSyntaxCheck   as TSC (typeSyntaxCheck)
 import qualified Curry.Frontend.Checks.WarnCheck         as WC  (warnCheck)
+import qualified Curry.Frontend.Checks.SpliceCheck       as SPC (spliceCheck)
 
 import Curry.Base.Monad
 import Curry.Syntax (Module (..), Interface (..), ImportSpec)
@@ -68,6 +69,13 @@ extensionCheck opts (env, mdl)
   | null msgs = ok (env { extensions = exts }, mdl)
   | otherwise = failMessages msgs
   where (exts, msgs) = EXC.extensionCheck opts mdl
+
+-- |Check and execute splices in module
+spliceCheck :: Monad m => Check m (Module a)
+spliceCheck _ (env, mdl)
+  | null msgs = ok (env, mdl')
+  | otherwise = failMessages msgs
+  where (mdl', msgs) = SPC.spliceCheck (extensions env) mdl
 
 -- |Check the type syntax of type definitions and signatures.
 --
