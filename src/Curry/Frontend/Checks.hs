@@ -71,7 +71,7 @@ extensionCheck opts (env, mdl)
   where (exts, msgs) = EXC.extensionCheck opts mdl
 
 -- |Check and execute splices in module
-spliceCheck :: Monad m => Check m (Module a)
+spliceCheck :: Monad m => Check m (Module ())
 spliceCheck _ (env, mdl)
   | null msgs = ok (env, mdl')
   | otherwise = failMessages msgs

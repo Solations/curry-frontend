@@ -292,6 +292,7 @@ data DumpLevel
   | DumpCaseCompleted     -- ^ dump IL code after case completion
   | DumpTypedFlatCurry    -- ^ dump typed FlatCurry code
   | DumpFlatCurry         -- ^ dump FlatCurry code
+  | DumpSplice            -- ^ dump after splicing
     deriving (Eq, Bounded, Enum, Show)
 
 -- |Description and flag of dump levels
@@ -319,6 +320,7 @@ dumpLevel = [ (DumpCondCompiled     , "dump-cond" , "conditional compiling"     
             , (DumpCaseCompleted    , "dump-cc"   , "case completion"                 )
             , (DumpTypedFlatCurry   , "dump-tflat", "translation into typed FlatCurry")
             , (DumpFlatCurry        , "dump-flat" , "translation into FlatCurry"      )
+            , (DumpSplice           , "dump-splice", "dump after splicing"            )
             ]
 
 -- |Description and flag of language extensions

@@ -13,13 +13,14 @@
 -}
 module Curry.Frontend.Checks.SpliceCheck (spliceCheck) where
 
-import System.IO
-
-import Curry.Syntax
+import Curry.Syntax.Type
+import Curry.Base.Ident
+import Curry.Base.SpanInfo
 
 import Curry.Frontend.Base.Messages (Message)
 
 
+--Env übergeben
 spliceCheck :: [KnownExtension] -> Module a -> (Module a, [Message])
 spliceCheck _ m = (resolveSplice m, [])
     
@@ -30,7 +31,7 @@ spliceCheck _ m = (resolveSplice m, [])
     -- => typeSyntaxCheck :: [KnownExtension] -> TCEnv -> ClassEnv -> Module a -> (Module a, [Message])
     -- => kindCheck :: TCEnv -> ClassEnv -> Module a -> ((TCEnv, ClassEnv), [Message])
 
--- This is max stupidity I'd say, must be a better way
+-- This is max stupidity I'd say, there must be a better way
 -- Also ofc works only for Spliced expressions and really easy ones of those
 -- So very limited for now, but let's see...
 resolveSplice :: Module a -> Module a
@@ -91,10 +92,27 @@ stmtResolveSplice (StmtBind x1 x2 e) = StmtBind x1 x2 (exprResolveSplice e)
 altResolveSplice :: Alt a -> Alt a
 altResolveSplice (Alt x1 x2 rhs) = Alt x1 x2 (rhsResolveSplice rhs)
 
--- Das natürlich maximal unausgereift...
-createModule :: String -> IO ()
-createModule s = do
-    file <- openFile "splice.curry" WriteMode
-    hPutStrLn file ("main = " ++ s)
-    hClose file
-    
+createModule :: Expression () -> Module ()
+createModule e = Module
+  NoSpanInfo
+  WhitespaceLayout              -- LayoutInfo
+  []                            -- [ModulePragma]
+  (mkMIdent ["Splice"])         -- ModuleIdent
+  Nothing                       -- Maybe ExportSpec
+  []                            -- [ImportDecl]
+  [ FunctionDecl
+      NoSpanInfo 
+      ()                        -- Type
+      (mkIdent "main")          -- Ident
+      [ Equation
+          NoSpanInfo
+          Nothing               -- Type
+          (FunLhs NoSpanInfo (mkIdent "main") [])
+          (SimpleRhs
+            NoSpanInfo
+            WhitespaceLayout
+            e
+            []
+          )
+      ]
+  ]
