@@ -71,11 +71,11 @@ extensionCheck opts (env, mdl)
   where (exts, msgs) = EXC.extensionCheck opts mdl
 
 -- |Check and execute splices in module
-spliceCheck :: Monad m => Check m (Module ())
-spliceCheck _ (env, mdl)
-  | null msgs = ok (env, mdl')
-  | otherwise = failMessages msgs
-  where (mdl', msgs) = SPC.spliceCheck (extensions env) mdl
+spliceCheck :: MonadIO m => Check m (Module ())
+spliceCheck opts (env, mdl) = do
+  (mdl', msgs) <- liftIO $ SPC.spliceCheck opts env mdl
+  if null msgs then ok (env, mdl') else failMessages msgs
+
 
 -- |Check the type syntax of type definitions and signatures.
 --
