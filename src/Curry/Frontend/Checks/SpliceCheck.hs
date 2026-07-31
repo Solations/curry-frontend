@@ -14,15 +14,17 @@
 module Curry.Frontend.Checks.SpliceCheck (spliceCheck) where
 
 import Control.Monad (unless)
-import Control.Monad.IO.Class (liftIO, MonadIO)
+import Control.Monad.IO.Class (liftIO)
 
 
 import Curry.Syntax.Type
 import Curry.Base.Ident
 import Curry.Base.SpanInfo
-import Curry.Base.Monad (CYIO, CYT, failMessages, runCYIO)
+import Curry.Base.Monad (CYIO, failMessages, runCYIO)
 
 import qualified Curry.FlatCurry as FC (Prog, writeFlatCurry)
+import Curry.Files.Filenames (flatName)
+import System.FilePath (takeDirectory, (</>))
 
 import Curry.Frontend.Base.Messages (Message)
 import Curry.Frontend.CompilerOpts (Options (..), OptimizationOpts (..))
@@ -76,12 +78,46 @@ createModule imports e = Module
       ]
   ]
 
+-- 'Modules.loadModule' only adds the implicit Prelude import to the module
+-- value it uses *internally* to build the host's 'CompilerEnv'
+-- ('importPrelude opts mdl', called "withPrel" there) -- the 'Module ()' it
+-- actually returns keeps the original, unmodified import list:
+--
+--   loadModule opts m fn = do
+--     ...
+--     let withPrel = importPrelude opts mdl
+--     iEnv <- loadInterfaces paths withPrel
+--     ...
+--     cEnv <- importModules withPrel iEnv is
+--     return (cEnv { filePath = fn, tokens = toks }, mdl)   -- returns mdl, not withPrel!
+--
+-- So an unqualified host module (no explicit "import Prelude") never
+-- actually has a Prelude 'ImportDecl' in the import list 'compileSplice'
+-- gets handed, even though the host's 'CompilerEnv' (and its
+-- 'interfaceEnv') was built as if it did. Without this, 'importModules'
+-- below folds none of Prelude's classes/types/values into the sandboxed
+-- module's environment, and checks like 'TC.typeCheck' blow up on anything
+-- that needs them (e.g. 'Prelude.Num' for a numeric literal).
+--
+-- 'Modules.importPrelude' itself isn't exported (and importing
+-- 'Curry.Frontend.Modules' here would be the same cycle documented above),
+-- so this mirrors its logic locally instead.
+withPrelude :: CompilerEnv -> [ImportDecl] -> [ImportDecl]
+withPrelude env imports
+  | NoImplicitPrelude `elem` extensions env = imports
+  | preludeMIdent `elem` importedModules    = imports
+  | otherwise                               = preludeImport : imports
+  where
+  importedModules = [m | ImportDecl _ m _ _ _ <- imports]
+  preludeImport   = ImportDecl NoSpanInfo preludeMIdent False Nothing Nothing
+
 -- Runs pretty much the same pipeline Modules.hs does, but less checks
 -- this might have to change later, however we won't ever need the splice check ofc...
 compileSplice :: Options -> CompilerEnv -> [ImportDecl] -> Expression ()
               -> CYIO FC.Prog
-compileSplice opts env imports e = do
-  let mdl0 = createModule imports e
+compileSplice opts env imports0 e = do
+  let imports = withPrelude env imports0
+      mdl0    = createModule imports e
   env0 <- importModules mdl0 (interfaceEnv env) imports
 
   let env0' = env0 { extensions = extensions env }
@@ -154,7 +190,7 @@ exprResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Expression () -> 
 exprResolveSplice opts env is (ExprSplice _ e) = do
   -- Doesn't run the splice yet ofc...
   _fcy <- compileSplice opts env is e
-  _ <- liftIO $ FC.writeFlatCurry (filePath env) _fcy
+  _ <- liftIO $ FC.writeFlatCurry (flatName (takeDirectory (filePath env) </> "Splice")) _fcy
   return e
 exprResolveSplice opts env is (Paren x1 e) =
   Paren x1 <$> exprResolveSplice opts env is e
