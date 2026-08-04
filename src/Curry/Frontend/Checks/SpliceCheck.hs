@@ -61,8 +61,12 @@ createModule imports e = Module
   (mkMIdent ["Splice"])         -- ModuleIdent
   Nothing                       -- Maybe ExportSpec
   imports                       -- [ImportDecl]
-  [ FunctionDecl
-      NoSpanInfo 
+  [ TypeSig
+      NoSpanInfo
+      [mkIdent "main"]
+      (QualTypeExpr NoSpanInfo [] qExpType)
+  , FunctionDecl
+      NoSpanInfo
       ()                        -- Type
       (mkIdent "main")          -- Ident
       [ Equation
@@ -77,31 +81,11 @@ createModule imports e = Module
           )
       ]
   ]
+  where
+  qExpType = ApplyType NoSpanInfo
+               (ConstructorType NoSpanInfo (qualify (mkIdent "Q")))
+               (ConstructorType NoSpanInfo (qualify (mkIdent "CExpr")))
 
--- 'Modules.loadModule' only adds the implicit Prelude import to the module
--- value it uses *internally* to build the host's 'CompilerEnv'
--- ('importPrelude opts mdl', called "withPrel" there) -- the 'Module ()' it
--- actually returns keeps the original, unmodified import list:
---
---   loadModule opts m fn = do
---     ...
---     let withPrel = importPrelude opts mdl
---     iEnv <- loadInterfaces paths withPrel
---     ...
---     cEnv <- importModules withPrel iEnv is
---     return (cEnv { filePath = fn, tokens = toks }, mdl)   -- returns mdl, not withPrel!
---
--- So an unqualified host module (no explicit "import Prelude") never
--- actually has a Prelude 'ImportDecl' in the import list 'compileSplice'
--- gets handed, even though the host's 'CompilerEnv' (and its
--- 'interfaceEnv') was built as if it did. Without this, 'importModules'
--- below folds none of Prelude's classes/types/values into the sandboxed
--- module's environment, and checks like 'TC.typeCheck' blow up on anything
--- that needs them (e.g. 'Prelude.Num' for a numeric literal).
---
--- 'Modules.importPrelude' itself isn't exported (and importing
--- 'Curry.Frontend.Modules' here would be the same cycle documented above),
--- so this mirrors its logic locally instead.
 withPrelude :: CompilerEnv -> [ImportDecl] -> [ImportDecl]
 withPrelude env imports
   | NoImplicitPrelude `elem` extensions env = imports
