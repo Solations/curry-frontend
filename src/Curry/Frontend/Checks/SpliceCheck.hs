@@ -13,9 +13,10 @@
 -}
 module Curry.Frontend.Checks.SpliceCheck (spliceCheck) where
 
+import System.Process (readCreateProcess, proc, CreateProcess (cwd))
+
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
-
 
 import Curry.Syntax.Type
 import Curry.Base.Ident
@@ -23,7 +24,7 @@ import Curry.Base.SpanInfo
 import Curry.Base.Monad (CYIO, failMessages, runCYIO)
 
 import qualified Curry.FlatCurry as FC (Prog, writeFlatCurry)
-import Curry.Files.Filenames (flatName)
+import Curry.Files.Filenames (flatName, addOutDirModule)
 import System.FilePath (takeDirectory, (</>))
 
 import Curry.Frontend.Base.Messages (Message)
@@ -61,11 +62,7 @@ createModule imports e = Module
   (mkMIdent ["Splice"])         -- ModuleIdent
   Nothing                       -- Maybe ExportSpec
   imports                       -- [ImportDecl]
-  [ TypeSig
-      NoSpanInfo
-      [mkIdent "main"]
-      (QualTypeExpr NoSpanInfo [] qExpType)
-  , FunctionDecl
+  [ FunctionDecl
       NoSpanInfo
       ()                        -- Type
       (mkIdent "main")          -- Ident
@@ -76,12 +73,19 @@ createModule imports e = Module
           (SimpleRhs
             NoSpanInfo
             WhitespaceLayout
-            e
+            mainBody
             []
           )
       ]
   ]
   where
+  mainBody = InfixApply NoSpanInfo
+               (Apply NoSpanInfo
+                  (Variable NoSpanInfo () (qualify (mkIdent "qtoIO")))
+                  (Typed NoSpanInfo e (QualTypeExpr NoSpanInfo [] qExpType)))
+               (InfixOp () (qualify (mkIdent ">>=")))
+               (Variable NoSpanInfo () (qualify (mkIdent "print")))
+
   qExpType = ApplyType NoSpanInfo
                (ConstructorType NoSpanInfo (qualify (mkIdent "Q")))
                (ConstructorType NoSpanInfo (qualify (mkIdent "CExpr")))
@@ -173,8 +177,13 @@ condExprResolveSplice opts env is (CondExpr x1 g e) =
 exprResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Expression () -> CYIO (Expression ())
 exprResolveSplice opts env is (ExprSplice _ e) = do
   -- Doesn't run the splice yet ofc...
-  _fcy <- compileSplice opts env is e
-  _ <- liftIO $ FC.writeFlatCurry (flatName (takeDirectory (filePath env) </> "Splice")) _fcy
+  fcy <- compileSplice opts env is e
+  let useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
+      spliceDir = takeDirectory (filePath env)
+      spliceFcy = useSubDir (flatName (spliceDir </> "Splice"))
+  _ <- liftIO $ FC.writeFlatCurry (useSubDir spliceFcy) fcy
+  sexp <- liftIO $ runSplice spliceDir
+  liftIO $ print sexp
   return e
 exprResolveSplice opts env is (Paren x1 e) =
   Paren x1 <$> exprResolveSplice opts env is e
@@ -250,3 +259,24 @@ stmtResolveSplice opts env is (StmtBind x1 x2 e) =
 altResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Alt () -> CYIO (Alt ())
 altResolveSplice opts env is (Alt x1 x2 rhs) =
   Alt x1 x2 <$> rhsResolveSplice opts env is rhs
+
+resultStartMarker, resultEndMarker:: String
+resultStartMarker = "===SPLICE-RESULT-START==="
+resultEndMarker = "===SPLICE-RESULT-END==="
+
+runSplice :: FilePath -> IO String
+runSplice spliceDir = do
+  out <- readCreateProcess (proc "pakcs" []) { cwd = Just spliceDir }
+    (unlines 
+    [ ":l Splice"
+    , "putStrLn" ++ show resultStartMarker
+    , ":main"
+    , "putStrLn" ++ show resultEndMarker
+    , ":q"
+    ])
+  return (extractResult out)
+
+extractResult :: String -> String
+extractResult output = 
+  let afterStart = drop 1 $ dropWhile (/=resultStartMarker) (lines output)
+  in unlines (takeWhile (/=resultEndMarker) afterStart)
