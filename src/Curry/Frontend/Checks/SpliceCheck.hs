@@ -15,6 +15,8 @@ module Curry.Frontend.Checks.SpliceCheck (spliceCheck) where
 
 import System.Process (readCreateProcess, proc, CreateProcess (cwd))
 
+import Text.Read (readMaybe)
+
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 
@@ -24,6 +26,7 @@ import Curry.Base.SpanInfo
 import Curry.Base.Monad (CYIO, failMessages, runCYIO)
 
 import qualified Curry.FlatCurry as FC (Prog, writeFlatCurry)
+import qualified Curry.AbstractCurry as AC (CExpr)
 import Curry.Files.Filenames (flatName, addOutDirModule)
 import System.FilePath (takeDirectory, (</>))
 
@@ -42,6 +45,11 @@ import qualified Curry.Frontend.Checks.SyntaxCheck as SC (syntaxCheck)
 import qualified Curry.Frontend.Checks.PrecCheck   as PC (precCheck)
 import qualified Curry.Frontend.Checks.TypeCheck   as TC (typeCheck)
 import qualified Curry.Frontend.Checks.ExportCheck as EC (expandExports)
+import Curry.AbstractCurry.Type
+  ( CExpr (..), CLiteral (..), CPattern (..), CLocalDecl (..), CStatement (..)
+  , CRhs (..), CFuncDecl (..), CRule (..), CCaseType (..), CQualTypeExpr (..)
+  , CTypeExpr (..), CContext (..), QName, CVarIName
+  )
 
 
 spliceCheck :: Options -> CompilerEnv -> Module () -> IO (Module (), [Message])
@@ -79,12 +87,24 @@ createModule imports e = Module
       ]
   ]
   where
-  mainBody = InfixApply NoSpanInfo
-               (Apply NoSpanInfo
-                  (Variable NoSpanInfo () (qualify (mkIdent "qtoIO")))
-                  (Typed NoSpanInfo e (QualTypeExpr NoSpanInfo [] qExpType)))
-               (InfixOp () (qualify (mkIdent ">>=")))
-               (Variable NoSpanInfo () (qualify (mkIdent "print")))
+  -- main = putStrLn resultStartMarker
+  --     >> (qtoIO (e :: Q CExpr) >>= print
+  --     >> putStrLn resultEndMarker)
+  mainBody = putStrLnExpr resultStartMarker `seqExpr`
+               (qtoIOPrint `seqExpr` putStrLnExpr resultEndMarker)
+
+  qtoIOPrint = InfixApply NoSpanInfo
+                 (Apply NoSpanInfo
+                    (Variable NoSpanInfo () (qualify (mkIdent "qtoIO")))
+                    (Typed NoSpanInfo e (QualTypeExpr NoSpanInfo [] qExpType)))
+                 (InfixOp () (qualify (mkIdent ">>=")))
+                 (Variable NoSpanInfo () (qualify (mkIdent "print")))
+
+  putStrLnExpr s = Apply NoSpanInfo
+                     (Variable NoSpanInfo () (qualify (mkIdent "putStrLn")))
+                     (Literal NoSpanInfo () (String s))
+
+  seqExpr e1 e2 = InfixApply NoSpanInfo e1 (InfixOp () (qualify (mkIdent ">>"))) e2
 
   qExpType = ApplyType NoSpanInfo
                (ConstructorType NoSpanInfo (qualify (mkIdent "Q")))
@@ -182,9 +202,11 @@ exprResolveSplice opts env is (ExprSplice _ e) = do
       spliceDir = takeDirectory (filePath env)
       spliceFcy = useSubDir (flatName (spliceDir </> "Splice"))
   _ <- liftIO $ FC.writeFlatCurry (useSubDir spliceFcy) fcy
-  sexp <- liftIO $ runSplice spliceDir
-  liftIO $ print sexp
-  return e
+  sExp <- liftIO $ runSplice spliceDir
+  liftIO $ print sExp
+  case readMaybe sExp :: Maybe AC.CExpr of
+    Just acExpr -> return (buildAstExpr acExpr)
+    Nothing     -> error "Error compiling splice."
 exprResolveSplice opts env is (Paren x1 e) =
   Paren x1 <$> exprResolveSplice opts env is e
 exprResolveSplice opts env is (Typed x1 e x2) =
@@ -267,11 +289,9 @@ resultEndMarker = "===SPLICE-RESULT-END==="
 runSplice :: FilePath -> IO String
 runSplice spliceDir = do
   out <- readCreateProcess (proc "pakcs" []) { cwd = Just spliceDir }
-    (unlines 
+    (unlines
     [ ":l Splice"
-    , "putStrLn" ++ show resultStartMarker
     , ":main"
-    , "putStrLn" ++ show resultEndMarker
     , ":q"
     ])
   return (extractResult out)
@@ -280,3 +300,125 @@ extractResult :: String -> String
 extractResult output = 
   let afterStart = drop 1 $ dropWhile (/=resultStartMarker) (lines output)
   in unlines (takeWhile (/=resultEndMarker) afterStart)
+
+buildAstExpr :: CExpr -> Expression ()
+buildAstExpr (CVar vn) =
+  Variable NoSpanInfo () (qualify (buildAstIdent vn))
+buildAstExpr (CLit lit) =
+  Literal NoSpanInfo () (buildAstLit lit)
+buildAstExpr (CSymbol qn) =
+  Variable NoSpanInfo () (buildAstQualIdent qn)
+buildAstExpr (CApply e1 e2) =
+  Apply NoSpanInfo (buildAstExpr e1) (buildAstExpr e2)
+buildAstExpr (CLambda ps e) =
+  Lambda NoSpanInfo (map buildAstPattern ps) (buildAstExpr e)
+buildAstExpr (CLetDecl ds e) =
+  Let NoSpanInfo WhitespaceLayout (map buildAstLocalDecl ds) (buildAstExpr e)
+buildAstExpr (CDoExpr sts) =
+  uncurry (Do NoSpanInfo WhitespaceLayout) (buildAstDoBody sts)
+buildAstExpr (CListComp e sts) =
+  ListCompr NoSpanInfo (buildAstExpr e) (map buildAstStatement sts)
+buildAstExpr (CCase ct e alts) =
+  Case NoSpanInfo WhitespaceLayout (buildAstCaseType ct) (buildAstExpr e)
+       (map buildAstAlt alts)
+buildAstExpr (CTyped e qty) =
+  Typed NoSpanInfo (buildAstExpr e) (buildAstQualTypeExpr qty)
+buildAstExpr (CRecConstr qn fs) =
+  Record NoSpanInfo () (buildAstQualIdent qn) (map (buildAstField buildAstExpr) fs)
+buildAstExpr (CRecUpdate e fs) =
+  RecordUpdate NoSpanInfo (buildAstExpr e) (map (buildAstField buildAstExpr) fs)
+
+buildAstDoBody :: [CStatement] -> ([Statement ()], Expression ())
+buildAstDoBody sts = case reverse sts of
+  (CSExpr e : rest) -> (map buildAstStatement (reverse rest), buildAstExpr e)
+  _                 -> error
+    "SpliceCheck.buildAstDoBody: do-block must end in an expression statement"
+
+buildAstPattern :: CPattern -> Pattern ()
+buildAstPattern (CPVar vn) =
+  VariablePattern NoSpanInfo () (buildAstIdent vn)
+buildAstPattern (CPLit lit) =
+  LiteralPattern NoSpanInfo () (buildAstLit lit)
+buildAstPattern (CPComb qn ps) =
+  ConstructorPattern NoSpanInfo () (buildAstQualIdent qn) (map buildAstPattern ps)
+buildAstPattern (CPAs vn p) =
+  AsPattern NoSpanInfo (buildAstIdent vn) (buildAstPattern p)
+buildAstPattern (CPFuncComb qn ps) =
+  FunctionPattern NoSpanInfo () (buildAstQualIdent qn) (map buildAstPattern ps)
+buildAstPattern (CPLazy p) =
+  LazyPattern NoSpanInfo (buildAstPattern p)
+buildAstPattern (CPRecord qn fs) =
+  RecordPattern NoSpanInfo () (buildAstQualIdent qn) (map (buildAstField buildAstPattern) fs)
+
+buildAstLocalDecl :: CLocalDecl -> Decl ()
+buildAstLocalDecl (CLocalFunc fd)   = buildAstFuncDecl fd
+buildAstLocalDecl (CLocalPat p rhs) = PatternDecl NoSpanInfo (buildAstPattern p) (buildAstRhs rhs)
+buildAstLocalDecl (CLocalVars vns)  = FreeDecl NoSpanInfo (map (Var () . buildAstIdent) vns)
+
+-- Doesn't emit a separate 'TypeSig' for the function's 'CQualTypeExpr' --
+-- local (let/where) functions don't need one, and it keeps this a clean
+-- one-'CLocalDecl'-to-one-'Decl' mapping.
+buildAstFuncDecl :: CFuncDecl -> Decl ()
+buildAstFuncDecl (CFunc qn _arity _vis _qty rules) =
+  FunctionDecl NoSpanInfo () name (map (buildAstRule name) rules)
+  where
+  name = mkIdent (snd qn)
+  buildAstRule n (CRule ps rhs) =
+    Equation NoSpanInfo Nothing
+      (FunLhs NoSpanInfo n (map buildAstPattern ps))
+      (buildAstRhs rhs)
+
+buildAstRhs :: CRhs -> Rhs ()
+buildAstRhs (CSimpleRhs e ds) =
+  SimpleRhs NoSpanInfo WhitespaceLayout (buildAstExpr e) (map buildAstLocalDecl ds)
+buildAstRhs (CGuardedRhs gs ds) =
+  GuardedRhs NoSpanInfo WhitespaceLayout
+    [CondExpr NoSpanInfo (buildAstExpr g) (buildAstExpr e) | (g, e) <- gs]
+    (map buildAstLocalDecl ds)
+
+buildAstStatement :: CStatement -> Statement ()
+buildAstStatement (CSExpr e)  = StmtExpr NoSpanInfo (buildAstExpr e)
+buildAstStatement (CSPat p e) = StmtBind NoSpanInfo (buildAstPattern p) (buildAstExpr e)
+buildAstStatement (CSLet ds)  = StmtDecl NoSpanInfo WhitespaceLayout (map buildAstLocalDecl ds)
+
+buildAstAlt :: (CPattern, CRhs) -> Alt ()
+buildAstAlt (p, rhs) = Alt NoSpanInfo (buildAstPattern p) (buildAstRhs rhs)
+
+buildAstCaseType :: CCaseType -> CaseType
+buildAstCaseType CRigid = Rigid
+buildAstCaseType CFlex  = Flex
+
+buildAstQualTypeExpr :: CQualTypeExpr -> QualTypeExpr
+buildAstQualTypeExpr (CQualType (CContext cs) ty) =
+  QualTypeExpr NoSpanInfo (map buildAstConstraint cs) (buildAstTypeExpr ty)
+
+buildAstConstraint :: (QName, [CTypeExpr]) -> Constraint
+buildAstConstraint (qn, tys) =
+  Constraint NoSpanInfo (buildAstQualIdent qn) (map buildAstTypeExpr tys)
+
+buildAstTypeExpr :: CTypeExpr -> TypeExpr
+buildAstTypeExpr (CTVar vn)        = VariableType NoSpanInfo (buildAstIdent vn)
+buildAstTypeExpr (CFuncType t1 t2) = ArrowType NoSpanInfo (buildAstTypeExpr t1) (buildAstTypeExpr t2)
+buildAstTypeExpr (CTCons qn)       = ConstructorType NoSpanInfo (buildAstQualIdent qn)
+buildAstTypeExpr (CTApply t1 t2)   = ApplyType NoSpanInfo (buildAstTypeExpr t1) (buildAstTypeExpr t2)
+
+buildAstField :: (a -> b) -> (QName, a) -> Field b
+buildAstField f (qn, x) = Field NoSpanInfo (buildAstQualIdent qn) (f x)
+
+buildAstQualIdent :: QName -> QualIdent
+buildAstQualIdent ("", n) = qualify (mkIdent n)
+buildAstQualIdent (m, n)  = qualifyWith (mkMIdent (splitModuleName m)) (mkIdent n)
+
+splitModuleName :: String -> [String]
+splitModuleName s = case break (== '.') s of
+  (m, '.':rest) -> m : splitModuleName rest
+  (m, _)        -> [m]
+
+buildAstIdent :: CVarIName -> Ident
+buildAstIdent (_, n) = mkIdent n
+
+buildAstLit :: CLiteral -> Literal
+buildAstLit (CIntc n)    = Int n
+buildAstLit (CFloatc f)  = Float f
+buildAstLit (CCharc c)   = Char c
+buildAstLit (CStringc s) = String s
