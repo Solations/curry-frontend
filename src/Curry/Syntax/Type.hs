@@ -173,6 +173,7 @@ data Decl a
   | DefaultDecl      SpanInfo [TypeExpr]                                           -- default (Int, Float)
   | ClassDecl        SpanInfo LayoutInfo Context Ident [Ident] [FunDep] [Decl a]   -- class C a => D a b | a -> b where {TypeSig|InfixDecl|FunctionDecl}
   | InstanceDecl     SpanInfo LayoutInfo Context QualIdent [InstanceType] [Decl a] -- instance C a => M.D (N.T a b c) where {FunctionDecl}
+  | TopLevelSplice   SpanInfo (Expression a)
     deriving (Eq, Read, Show, Generic, Binary)
 
 -- ---------------------------------------------------------------------------
@@ -216,6 +217,7 @@ data TypeExpr
   | ArrowType       SpanInfo TypeExpr TypeExpr
   | ParenType       SpanInfo TypeExpr
   | ForallType      SpanInfo [Ident] TypeExpr
+  | TypeExprSplice  SpanInfo (Expression ())
     deriving (Eq, Read, Show, Generic, Binary)
 
 -- |Qualified type expressions
@@ -318,7 +320,7 @@ data Expression a
   | Do                SpanInfo LayoutInfo [Statement a] (Expression a)
   | IfThenElse        SpanInfo (Expression a) (Expression a) (Expression a)
   | Case              SpanInfo LayoutInfo CaseType (Expression a) [Alt a]
-  | ExprSplice            SpanInfo (Expression a)
+  | ExprSplice        SpanInfo (Expression a)
     deriving (Eq, Read, Show, Generic, Binary)
 
 -- |Infix operation
@@ -384,6 +386,7 @@ instance Functor Decl where
     ClassDecl sp li cx cls clsvars fds (map (fmap f) ds)
   fmap f (InstanceDecl sp li cx qcls inst ds) =
     InstanceDecl sp li cx qcls inst (map (fmap f) ds)
+  fmap f (TopLevelSplice sp e) = TopLevelSplice sp (fmap f e)
 
 instance Functor Equation where
   fmap f (Equation p a lhs rhs) =
@@ -508,6 +511,7 @@ instance HasSpanInfo (Decl a) where
   getSpanInfo (DefaultDecl      sp _)       = sp
   getSpanInfo (ClassDecl        sp _ _ _ _ _ _) = sp
   getSpanInfo (InstanceDecl     sp _ _ _ _ _)   = sp
+  getSpanInfo (TopLevelSplice   sp _) = sp
 
   setSpanInfo sp (InfixDecl _ fix prec ops) = InfixDecl sp fix prec ops
   setSpanInfo sp (DataDecl _ tc tvs cs clss) = DataDecl sp tc tvs cs clss
@@ -522,6 +526,7 @@ instance HasSpanInfo (Decl a) where
   setSpanInfo sp (DefaultDecl _ tys) = DefaultDecl sp tys
   setSpanInfo sp (ClassDecl _ li cx cls clsvars fds ds) = ClassDecl sp li cx cls clsvars fds ds
   setSpanInfo sp (InstanceDecl _ li cx qcls inst ds) = InstanceDecl sp li cx qcls inst ds
+  setSpanInfo sp (TopLevelSplice _ e) = TopLevelSplice sp e
 
   updateEndPos d@(InfixDecl _ _ _ ops) =
     let i' = last ops
@@ -579,6 +584,7 @@ instance HasSpanInfo (Decl a) where
         oEnd = last $ getSrcSpanEnd qcls : map getSrcSpanEnd inst
         ends = filter (/= NoPos) $ oEnd : sipEnd
     in if null ends then d else setEndPosition (maximum ends) d
+  updateEndPos d@(TopLevelSplice _ _) = d
 
   getLayoutInfo (ClassDecl _ li _ _ _ _ _) = li
   getLayoutInfo (InstanceDecl _ li _ _ _ _) = li
@@ -724,6 +730,7 @@ instance HasSpanInfo TypeExpr where
   getSpanInfo (ArrowType sp _ _)     = sp
   getSpanInfo (ParenType sp _)       = sp
   getSpanInfo (ForallType sp _ _)    = sp
+  getSpanInfo (TypeExprSplice sp _)  = sp
 
   setSpanInfo sp (ConstructorType _ qid) = ConstructorType sp qid
   setSpanInfo sp (ApplyType _ ty1 ty2)   = ApplyType sp ty1 ty2
@@ -733,6 +740,7 @@ instance HasSpanInfo TypeExpr where
   setSpanInfo sp (ArrowType _ ty1 ty2)   = ArrowType sp ty1 ty2
   setSpanInfo sp (ParenType _ ty)        = ParenType sp ty
   setSpanInfo sp (ForallType _ idt ty)   = ForallType sp idt ty
+  setSpanInfo sp (TypeExprSplice _ e)    = TypeExprSplice sp e
 
   updateEndPos t@(ConstructorType _ qid) =
     setEndPosition (incr (getPosition qid) (qIdentLength qid - 1)) t
@@ -751,6 +759,7 @@ instance HasSpanInfo TypeExpr where
     setEndPosition (end (last (s:ss))) t
   updateEndPos t@(ParenType _ _) = t
   updateEndPos t@(ForallType _ _ _) = t -- not a parseable type
+  updateEndPos t@(TypeExprSplice _ _) = t
 
 instance HasSpanInfo QualTypeExpr where
   getSpanInfo (QualTypeExpr sp _ _) = sp
