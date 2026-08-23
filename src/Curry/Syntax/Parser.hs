@@ -321,7 +321,7 @@ topDecls = topDecl `sepBySp` semicolon
 topDecl :: Parser a Token (Decl ())
 topDecl = choice [ dataDecl, externalDataDecl, newtypeDecl, typeDecl
                  , classDecl, instanceDecl, defaultDecl
-                 , infixDecl, functionDecl ]
+                 , infixDecl, functionDecl, topLevelSplice ]
 
 dataDecl :: Parser a Token (Decl ())
 dataDecl = combineWithSpans
@@ -586,6 +586,11 @@ instanceDecl = mkInstance
       InstanceDecl (SpanInfo sp1 (sp1 : (ss ++ [sp2]))) li cx qcls inst ds
     mkInstance (sp1, ss, cx, qcls, inst) (Nothing, ds, li) = updateEndPos $
       InstanceDecl (SpanInfo sp1 (sp1 : ss)) li cx qcls inst ds
+
+topLevelSplice :: Parser a Token (Decl ())
+topLevelSplice = mkSplice <$> spliceSp expr0
+  where
+  mkSplice (e, sp1, sp2) = TopLevelSplice NoSpanInfo (updateSpanWithSplice (e, sp1, sp2))
 -- ---------------------------------------------------------------------------
 -- Type classes
 -- ---------------------------------------------------------------------------
@@ -661,9 +666,9 @@ type1 = foldl1 mkApplyType <$> many1 type2
   where mkApplyType ty1 ty2 = updateEndPos $
           ApplyType (fromSrcSpan (getSrcSpan ty1)) ty1 ty2
 
--- type2 ::= anonType | identType | parenType | bracketType
+-- type2 ::= anonType | identType | parenType | bracketType | spliceType
 type2 :: Parser a Token TypeExpr
-type2 = anonType <|> identType <|> parenType <|> bracketType
+type2 = anonType <|> identType <|> parenType <|> bracketType <|> spliceType
 
 -- anonType ::= '_'
 anonType :: Parser a Token TypeExpr
@@ -711,6 +716,11 @@ bracketType = fmap updateSpanWithBrackets (bracketsSp listType)
 listType :: Parser a Token TypeExpr
 listType = ListType NoSpanInfo <$> type0
              `opt` ConstructorType NoSpanInfo qListId
+
+-- spliceType ::= $(type)
+spliceType :: Parser a Token TypeExpr
+spliceType = mkTypeExprSplice <$> spliceSp expr0
+  where mkTypeExprSplice (exp, sp1, sp2) = TypeExprSplice NoSpanInfo (updateSpanWithSplice (exp, sp1, sp2))
 
 -- ---------------------------------------------------------------------------
 -- Literals
@@ -973,10 +983,6 @@ variable = qFunId <**> optRecord
           in updateEndPos $ Record spi () qid fs
         mkVariable qid = Variable (fromSrcSpan (getSrcSpan qid)) () qid
 
--- Add splicing here... Wir müssen Dollar gefolgt von left parenthesis erkennen...
--- Doesn't it make more sense to have a very own spliceExpr function or something like that?
--- The way, I understand this function we are already in the parenthesis, so how would we recognise the splice in the first place?
--- And if we had an spliceExpr function, do we need one for Declarations as well?
 parenExpr :: Parser a Token (Expression ())
 parenExpr = fmap updateSpanWithBrackets (parensSp pExpr)
   where
@@ -1111,6 +1117,13 @@ field p = mkField <$> spanPosition <*> qfun
                   <*> spanPosition <*-> expectEquals
                   <*> p
   where mkField sp1 q sp2 = updateEndPos . Field (spanInfo sp1 [sp2]) q
+
+-- I don't get why we use expr0 here, I also don't get how we found out this actually has to be a splice...
+-- I think I have to understand the parser better...
+spliceExpr :: Parser a Token (Expression())
+spliceExpr = mkSplice <$> spliceSp expr0 
+  where
+    mkSplice (exp, sp1, sp2) = ExprSplice NoSpanInfo (updateSpanWithSplice (exp, sp1, sp2))
 
 -- ---------------------------------------------------------------------------
 -- \paragraph{Statements in list comprehensions and \texttt{do} expressions}
@@ -1415,14 +1428,6 @@ spliceSp p = (\sp1 b sp2 -> (b, sp1, sp2))
                 <$> tokenSpan SplInit
                 <*> p
                 <*> tokenSpan RightParen
-
-
--- I don't get why we use expr0 here, I also don't get how we found out this actually has to be a splice...
--- I think I have to understand the parser better...
-spliceExpr :: Parser a Token (Expression())
-spliceExpr = mkSplice <$> spliceSp expr0 
-  where
-    mkSplice (exp, sp1, sp2) = ExprSplice NoSpanInfo (updateSpanWithSplice (exp, sp1, sp2))
 
 updateSpanWithSplice :: HasSpanInfo a => (a, Span, Span) -> a
 updateSpanWithSplice (ex, sp1, sp2) =
