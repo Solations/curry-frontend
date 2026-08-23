@@ -123,6 +123,9 @@ instance QualExpr (Expression a) where
   qfv m (Do              _ _ sts e) = foldr (qfvStmt m) (qfv m e) sts
   qfv m (IfThenElse     _ e1 e2 e3) = qfv m e1 ++ qfv m e2 ++ qfv m e3
   qfv m (Case         _ _ _ e alts) = qfv m e ++ qfv m alts
+  -- Not sure, maybe we can and have to calculate fv in Splces afterall. (We can...I think)
+  qfv _ (ExprSplice            _ _) = 
+    error "Curry.Base.Expr.qfv: Free variables should be calculated after Splices are evaluated."
 
 qfvStmt :: ModuleIdent -> Statement a -> [Ident] -> [Ident]
 qfvStmt m st fvs = qfv m st ++ filterBv st fvs
@@ -206,6 +209,9 @@ instance Expr TypeExpr where
   fv (ArrowType     _ ty1 ty2) = fv ty1 ++ fv ty2
   fv (ParenType          _ ty) = fv ty
   fv (ForallType      _ vs ty) = filter (`notElem` vs) $ fv ty
+  -- See comment above
+  fv (TypeExprSplice      _ _) =
+    error "Curry.Base.Expr.fv: Free variables should be calculated after Splices are evaluated."
 
 instance QuantExpr TypeExpr where
   bv (ConstructorType     _ _) = []
@@ -216,6 +222,9 @@ instance QuantExpr TypeExpr where
   bv (ArrowType     _ ty1 ty2) = bv ty1 ++ bv ty2
   bv (ParenType          _ ty) = bv ty
   bv (ForallType     _ tvs ty) = tvs ++ bv ty
+  -- See comment above
+  bv (TypeExprSplice      _ _) =
+    error "Curry.Base.Expr.bv: Bound variables should be calculated after Splices are evaluated."
 
 filterBv :: QuantExpr e => e -> [Ident] -> [Ident]
 filterBv e = filter (`Set.notMember` Set.fromList (bv e))

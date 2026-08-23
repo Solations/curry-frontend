@@ -308,6 +308,8 @@ checkTypeExpr (ParenType            _ ty) = checkTypeExpr ty
 checkTypeExpr (ForallType        _ vs ty) = do
   mapM_ insertTypeVar vs
   checkTypeExpr ty
+checkTypeExpr (TypeExprSplice        _ _) = 
+  error "Curry.Checks.WarnCheck.checkTypeExpr: Splices should be evaluated before WarnCheck."
 
 -- Checks locally declared identifiers (i.e. functions and logic variables)
 -- for shadowing
@@ -1079,6 +1081,8 @@ insertTypeExpr (ListType          _ ty) = insertTypeExpr ty
 insertTypeExpr (ArrowType    _ ty1 ty2) = mapM_ insertTypeExpr [ty1,ty2]
 insertTypeExpr (ParenType         _ ty) = insertTypeExpr ty
 insertTypeExpr (ForallType      _ _ ty) = insertTypeExpr ty
+insertTypeExpr (TypeExprSplice     _ _) = 
+  error "Curry.Checks.WarnCheck:insertTypeExpr: Splices should have been evaluated before WarnCheck was run."
 
 insertConstrDecl :: ConstrDecl -> WCM ()
 insertConstrDecl (ConstrDecl _    c _) = insertConsId c

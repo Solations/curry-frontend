@@ -83,6 +83,9 @@ instance QualAnnotExpr Expression where
   qafv m (Do              _ _ sts e) = foldr (qafvStmt m) (qafv m e) sts
   qafv m (IfThenElse     _ e1 e2 e3) = qafv m e1 ++ qafv m e2 ++ qafv m e3
   qafv m (Case         _ _ _ e alts) = qafv m e ++ concatMap (qafv m) alts
+  -- ToDo: Check
+  qafv _ (ExprSplice            _ _) =
+    error "Curry.Base.AnnotExpr.quafv: All splices should be resolved by now."
 
 qafvField :: QualAnnotExpr e => ModuleIdent -> Field (e Type) -> [(Type, Ident)]
 qafvField m (Field _ _ t) = qafv m t

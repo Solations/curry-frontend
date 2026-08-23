@@ -80,6 +80,9 @@ qDecl (ClassDecl p li cx cls tvs fds ds) = ClassDecl p li <$>
   qContext cx <*> pure cls <*> pure tvs <*> pure fds <*> mapM qDecl ds
 qDecl (InstanceDecl p li cx qcls tys ds) = InstanceDecl p li <$>
   qContext cx <*> qClass qcls <*> mapM qTypeExpr tys <*> mapM qDecl ds
+  -- Check error-message
+qDecl (TopLevelSplice _ _) =
+  error "Curry.Transformations.Qual.qDecl: All splices should be resolved by this time."
 
 qConstrDecl :: Qual ConstrDecl
 qConstrDecl (ConstrDecl p      n tys) =
@@ -116,6 +119,8 @@ qTypeExpr (ArrowType     spi ty1 ty2) = ArrowType spi <$> qTypeExpr ty1
                                               <*> qTypeExpr ty2
 qTypeExpr (ParenType          spi ty) = ParenType spi <$> qTypeExpr ty
 qTypeExpr (ForallType      spi vs ty) = ForallType spi vs <$> qTypeExpr ty
+qTypeExpr (TypeExprSplice        _ _) =
+  error "Curry.Transformations.Qual.qDecl: All splices should be resolved by this time."
 
 qQualTypeExpr :: Qual QualTypeExpr
 qQualTypeExpr (QualTypeExpr spi cx ty) = QualTypeExpr spi <$> qContext cx
@@ -200,6 +205,8 @@ qExpr (Do             spi li sts e) = Do  spi li <$> mapM qStmt sts <*> qExpr e
 qExpr (IfThenElse     spi e1 e2 e3) = IfThenElse spi <$> qExpr e1 <*> qExpr e2
                                                      <*> qExpr e3
 qExpr (Case         spi li ct e as) = Case spi li ct <$> qExpr e <*> mapM qAlt as
+qExpr (ExprSplice              _ _) = 
+  error "Curry.Transformations.Qual.qExpr: All splices should be resolved by this time."
 
 qStmt :: Qual (Statement a)
 qStmt (StmtExpr spi     e) = StmtExpr spi    <$> qExpr e

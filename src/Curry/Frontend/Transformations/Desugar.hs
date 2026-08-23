@@ -793,6 +793,8 @@ dsExpr p (IfThenElse _ e1 e2 e3) = do
   return $ mkCase Rigid e1'
              [caseAlt p truePat e2', caseAlt p falsePat e3']
 dsExpr p (Case _ _ ct e alts) = dsCase p ct e alts
+dsExpr _ (ExprSplice     _ _) = 
+  error "Curry.Transformations.Desugar.dsExpr: Splices can't be desugared and also don't have to be. By the time desugaring is executed splices should already be evaluated."
 
 -- We ignore the context in the type signature of a typed expression, since
 -- there should be no possibility to provide a non-empty context without

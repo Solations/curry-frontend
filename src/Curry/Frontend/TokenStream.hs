@@ -125,6 +125,7 @@ showToken (Token LeftArrow      _) = "LeftArrow"
 showToken (Token RightArrow     _) = "RightArrow"
 showToken (Token Tilde          _) = "Tilde"
 showToken (Token DoubleArrow    _) = "DoubleArrow"
+showToken (Token SplInit        _) = "SplInit" -- Should maybe be SpliceInit or sth
 -- special identifiers
 showToken (Token Id_as          _) = "Id_as"
 showToken (Token Id_ccall       _) = "Id_ccall"

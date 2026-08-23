@@ -233,6 +233,11 @@ showsDecl (InstanceDecl spi li context qcls inst decls)
   . showsList showsInstanceType inst . space
   . showsList showsDecl decls
   . showsString ")"
+showsDecl (TopLevelSplice spi expr)
+  = showsString "(TopLevelDecl "
+  . showsSpanInfo spi . space
+  . showsExpression expr
+  . showsString ")"
 
 showsContext :: Context -> ShowS
 showsContext = showsList showsConstraint
@@ -350,6 +355,11 @@ showsTypeExpr (ForallType spi vars ty)
   . showsSpanInfo spi . space
   . showsList showsIdent vars
   . showsTypeExpr ty
+  . showsString ")"
+showsTypeExpr (TypeExprSplice spi expr)
+  = showsString "(TypeExprSplice "
+  . showsSpanInfo spi . space
+  . showsExpression expr
   . showsString ")"
 
 showsEquation :: Show a => Equation a -> ShowS
@@ -656,6 +666,11 @@ showsExpression (Record spi a qident efields)
   . showsPrec 11 a . space
   . showsQualIdent qident . space
   . showsList (showsField showsExpression) efields
+  . showsString ")"
+showsExpression (ExprSplice spi expr)
+  = showsString "(ExprSplice "
+  . showsSpanInfo spi . space
+  . showsExpression expr
   . showsString ")"
 
 showsInfixOp :: Show a => InfixOp a -> ShowS

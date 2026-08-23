@@ -358,6 +358,8 @@ instance HasModule TypeExpr where
   modules (ArrowType  _ ty1 ty2) = modules ty1 . modules ty2
   modules (ParenType       _ ty) = modules ty
   modules (ForallType    _ _ ty) = modules ty
+  modules (TypeExprSplice   _ _) = 
+    error "Exports.modules: Splice must be evaluated first."
 
 instance HasModule QualTypeExpr where
   modules (QualTypeExpr _ cx ty) = modules cx . modules ty
@@ -519,6 +521,8 @@ instance HasType TypeExpr where
   usedTypes (ArrowType  _ ty1 ty2) = usedTypes ty1 . usedTypes ty2
   usedTypes (ParenType       _ ty) = usedTypes ty
   usedTypes (ForallType    _ _ ty) = usedTypes ty
+  usedTypes (TypeExprSplice   _ _) = 
+    error "Exports.usedTypes: Splice has to be evaluated before calling this method."
 
 instance HasType QualTypeExpr where
   usedTypes (QualTypeExpr _ cx ty) = usedTypes cx . usedTypes ty

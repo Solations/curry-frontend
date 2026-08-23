@@ -333,6 +333,8 @@ idsDecl (ClassDecl _ _ cx c vs fds ds) =
 idsDecl (InstanceDecl _ _ cx c tys ds) = idsContext cx ++
   TypeCons TypeRefer False c : concatMap idsTypeExpr tys ++
   concatMap idsInstanceDecl ds
+-- Ckeck
+idsDecl (TopLevelSplice        _ e) = idsExpr e
 
 idsConstrDecl :: ConstrDecl -> [Code]
 idsConstrDecl (ConstrDecl     _ c tys) =
@@ -385,6 +387,8 @@ idsTypeExpr (ArrowType   _ ty1 ty2) = concatMap idsTypeExpr [ty1, ty2]
 idsTypeExpr (ParenType        _ ty) = idsTypeExpr ty
 idsTypeExpr (ForallType    _ vs ty) =
   map (Identifier IdDeclare False . qualify) vs ++ Symbol "." : idsTypeExpr ty
+-- Check
+idsTypeExpr (TypeExprSplice     _ e) = idsExpr e
 
 idsFieldDecl :: FieldDecl -> [Code]
 idsFieldDecl (FieldDecl _ ls ty) =
@@ -458,6 +462,8 @@ idsExpr (Let               _ _ ds e) = concatMap idsDecl ds ++ idsExpr e
 idsExpr (Do             _ _ stmts e) = concatMap idsStmt stmts ++ idsExpr e
 idsExpr (IfThenElse      _ e1 e2 e3) = concatMap idsExpr [e1, e2, e3]
 idsExpr (Case          _ _ _ e alts) = idsExpr e ++ concatMap idsAlt alts
+-- Check
+idsExpr (ExprSplice              _ e) = idsExpr e
 
 idsField :: (a -> [Code]) -> Field a -> [Code]
 idsField f (Field _ l x) = Function FuncCall False l : f x
@@ -513,6 +519,7 @@ showToken (Token Tilde              _) = "~"
 showToken (Token SymDot             _) = "."
 showToken (Token SymMinus           _) = "-"
 showToken (Token SymStar            _) = "*"
+showToken (Token SplInit            _) = "$("
 showToken (Token KW_case            _) = "case"
 showToken (Token KW_class           _) = "class"
 showToken (Token KW_data            _) = "data"

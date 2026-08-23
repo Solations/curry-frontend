@@ -319,6 +319,8 @@ checkExpr (IfThenElse spi e1 e2 e3)     = IfThenElse spi <$> checkExpr e1
                                                          <*> checkExpr e3
 checkExpr (Case spi li ct e alts)       = Case spi li ct <$> checkExpr e
                                                          <*> mapM checkAlt alts
+checkExpr (ExprSplice _ _)              = 
+  error "Curry.Checks.TypeSyntaxCheck.checkExpr: Splice should have been evaluated before TypeSyntaxCheck was run."
 
 checkStmt :: Statement a -> TSCM (Statement a)
 checkStmt (StmtExpr spi e)     = StmtExpr spi    <$> checkExpr e
@@ -439,6 +441,8 @@ checkType (ArrowType spi ty1 ty2) = ArrowType  spi    <$> checkType ty1
                                                       <*> checkType ty2
 checkType (ParenType      spi ty) = ParenType  spi    <$> checkType ty
 checkType (ForallType  spi vs ty) = ForallType spi vs <$> checkType ty
+checkType (TypeExprSplice _ _)    = 
+  error "Curry.Checks.TypeSyntaxCheck.checkType: Splice should have been evaluated before TypeSyntaxCheck was run."
 
 checkClosed :: [Ident] -> TypeExpr -> TSCM ()
 checkClosed _   (ConstructorType _ _) = ok
@@ -450,6 +454,8 @@ checkClosed tvs (ListType       _ ty) = checkClosed tvs ty
 checkClosed tvs (ArrowType _ ty1 ty2) = mapM_ (checkClosed tvs) [ty1, ty2]
 checkClosed tvs (ParenType      _ ty) = checkClosed tvs ty
 checkClosed tvs (ForallType  _ vs ty) = checkClosed (tvs ++ vs) ty
+checkClosed _ (TypeExprSplice _ _)    =
+  error "Curry.Checks.TypeSyntaxCheck.checkClosed: Splice should have been evaluated before TypeSyntaxCheck was run."
 
 checkMPTCExtClass :: SpanInfo -> Ident -> [Ident] -> TSCM ()
 checkMPTCExtClass spi cls = checkMPTCExt (errMultiParamClassNoExt spi cls)

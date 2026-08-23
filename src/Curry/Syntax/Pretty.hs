@@ -122,6 +122,7 @@ instance Pretty (Decl a) where
     ppClassInstHead "instance" cx (ppQIdent qcls) (map ppInstanceType inst) <+>
       ppIf (not $ null ds) (text "where") $$
       ppIf (not $ null ds) (indent $ ppBlock ds)
+  pPrint (TopLevelSplice _ e) = text "$(" <> pPrintPrec 0 e <> text ")"
 
 ppClassInstHead :: String -> Context -> Doc -> [Doc] -> Doc
 ppClassInstHead kw cx cls tys = text kw <+> ppContext cx <+> cls <+> hsep tys
@@ -331,6 +332,7 @@ instance Pretty TypeExpr where
   pPrintPrec p (ForallType   _ vs ty)
     | null vs   = pPrintPrec p ty
     | otherwise = parenIf (p > 0) $ ppQuantifiedVars vs <+> pPrintPrec 0 ty
+  pPrintPrec _ (TypeExprSplice _ e) = text "$(" <> pPrintPrec 0 e <> text ")"
 
 -- ---------------------------------------------------------------------------
 -- Literals
@@ -436,6 +438,7 @@ instance Pretty (Expression a) where
     (ppQIdent c <+> record (list (map pPrint fs)))
   pPrintPrec _ (RecordUpdate _ e fs) =
     pPrintPrec 0 e <+> record (list (map pPrint fs))
+  pPrintPrec _ (ExprSplice _ e) = text "$(" <> pPrintPrec 0 e <> text ")"
 
 instance Pretty (Statement a) where
   pPrint (StmtExpr   _ e) = pPrintPrec 0 e

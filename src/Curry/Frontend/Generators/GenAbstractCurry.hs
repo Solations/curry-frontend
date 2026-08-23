@@ -189,6 +189,9 @@ trTypeExpr (ListType       _ ty) =
 trTypeExpr (ArrowType _ ty1 ty2) = CFuncType <$> trTypeExpr ty1 <*> trTypeExpr ty2
 trTypeExpr (ParenType      _ ty) = trTypeExpr ty
 trTypeExpr ForallType{}          = internalError "GenAbstractCurry.trTypeExpr"
+-- ToDo: Add an Abstract-Curry representation of Splices. 
+trTypeExpr (TypeExprSplice  _ _) = 
+  error "GenAbstractCurry.trTypeExpr: No splice representation in GAC"
 
 trConstraint :: Constraint -> GAC CConstraint
 trConstraint (Constraint _ q tys) = (,) <$> trQual q <*> mapM trTypeExpr tys
@@ -325,6 +328,9 @@ trExpr (IfThenElse     _ e1 e2 e3) =
   trExpr $ apply (Variable NoSpanInfo undefined qIfThenElseId) [e1, e2, e3]
 trExpr (Case          _ _ ct e bs) = CCase (cvCaseType ct)
                                      <$> trExpr e <*> mapM trAlt bs
+-- ToDo: Add an Abstract-Curry representation of Splices. 
+trExpr (ExprSplice           _ _) = 
+  error "GenAbstractCurry.trExpr: No GAC representation for splices."
 
 cvCaseType :: CaseType -> CCaseType
 cvCaseType Flex  = CFlex

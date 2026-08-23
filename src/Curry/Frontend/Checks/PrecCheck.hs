@@ -232,6 +232,8 @@ checkExpr (IfThenElse   spi e1 e2 e3) =
   IfThenElse spi <$> checkExpr e1 <*> checkExpr e2 <*> checkExpr e3
 checkExpr (Case     spi li ct e alts) =
   Case spi li ct <$> checkExpr e <*> mapM checkAlt alts
+checkExpr (ExprSplice _ _)            =
+  error "Curry.Checks.PrecCheck.checkExpr: Splice should have been evaluated before PrecCheck was run."
 
 checkStmt :: Statement a -> PCM (Statement a)
 checkStmt (StmtExpr spi     e) =

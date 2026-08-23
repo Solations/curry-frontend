@@ -1534,6 +1534,8 @@ tcExpr (Case spi li ct e as) = do
   (pls', as') <- mapAccumM (tcAlt tyLhs tyRhs) pls as
   pls'' <- improvePreds pls'
   return (pls'', tyRhs, Case spi li ct e' as')
+tcExpr (ExprSplice _ _) =
+  error "Curry.Checks.TypeCheck.tcExpr: Splice should have been evaluated before TypeCheck was run."
 
 tcArg :: HasSpanInfo p => p -> String -> Doc -> LPredList -> Type -> Expression a
       -> TCM (LPredList, Expression PredType)
