@@ -18,6 +18,7 @@ import System.Process (readCreateProcess, proc, CreateProcess (cwd))
 import Text.Read (readMaybe)
 
 import Control.Monad (unless)
+import Control.Monad.Extra (concatMapM)
 import Control.Monad.IO.Class (liftIO)
 
 import Curry.Syntax.Type
@@ -26,7 +27,7 @@ import Curry.Base.SpanInfo
 import Curry.Base.Monad (CYIO, failMessages, runCYIO)
 
 import qualified Curry.FlatCurry as FC (Prog, writeFlatCurry)
-import qualified Curry.AbstractCurry as AC (CExpr)
+import qualified Curry.AbstractCurry as AC (CExpr, CFuncDecl)
 import Curry.Files.Filenames (flatName, addOutDirModule)
 import System.FilePath (takeDirectory, (</>))
 
@@ -51,7 +52,9 @@ import Curry.AbstractCurry.Type
   , CTypeExpr (..), CContext (..), QName, CVarIName
   )
 
-
+--------------------------------------------------
+-- I might wanna reorder all the functions in this module at some point...
+--------------------------------------------------
 spliceCheck :: Options -> CompilerEnv -> Module () -> IO (Module (), [Message])
 spliceCheck opts env m = do
   (result, warnings) <- runCYIO (resolveSplice opts env m)
@@ -62,14 +65,14 @@ spliceCheck opts env m = do
 -- For now we don't need more code than the expression itself.
 -- We do still of course need imports... 
 -----------------------------------------------------------
-createModule :: [ImportDecl] -> Expression () -> Module ()
-createModule imports e = Module
+createModule :: [ImportDecl] -> String -> Expression () -> String -> Module ()
+createModule imports name e typ = Module
   NoSpanInfo
   WhitespaceLayout              -- LayoutInfo
   []                            -- [ModulePragma]
-  (mkMIdent ["Splice"])         -- ModuleIdent
+  (mkMIdent [name])             -- ModuleIdent
   Nothing                       -- Maybe ExportSpec
-  imports                       -- [ImportDecl]
+  imports                      -- [ImportDecl]
   [ FunctionDecl
       NoSpanInfo
       ()                        -- Type
@@ -90,6 +93,7 @@ createModule imports e = Module
   -- main = putStrLn resultStartMarker
   --     >> (qtoIO (e :: Q CExpr) >>= print
   --     >> putStrLn resultEndMarker)
+
   mainBody = putStrLnExpr resultStartMarker `seqExpr`
                (qtoIOPrint `seqExpr` putStrLnExpr resultEndMarker)
 
@@ -108,7 +112,7 @@ createModule imports e = Module
 
   qExpType = ApplyType NoSpanInfo
                (ConstructorType NoSpanInfo (qualify (mkIdent "Q")))
-               (ConstructorType NoSpanInfo (qualify (mkIdent "CExpr")))
+               (ConstructorType NoSpanInfo (qualify (mkIdent typ)))
 
 withPrelude :: CompilerEnv -> [ImportDecl] -> [ImportDecl]
 withPrelude env imports
@@ -121,12 +125,12 @@ withPrelude env imports
 
 -- Runs pretty much the same pipeline Modules.hs does, but less checks
 -- this might have to change later, however we won't ever need the splice check ofc...
-compileSplice :: Options -> CompilerEnv -> [ImportDecl] -> Expression ()
+compileSplice :: Options -> CompilerEnv -> [ImportDecl] -> String -> Expression () -> String
               -> CYIO FC.Prog
-compileSplice opts env imports0 e = do
-  let imports = withPrelude env imports0
-      mdl0    = createModule imports e
-  env0 <- importModules mdl0 (interfaceEnv env) imports
+compileSplice opts env imports modName e typ = do
+  let imports' = withPrelude env imports
+      mdl0     = createModule imports' modName e typ
+  env0 <- importModules mdl0 (interfaceEnv env) imports'
 
   let env0' = env0 { extensions = extensions env }
 
@@ -165,18 +169,33 @@ compileSplice opts env imports0 e = do
 
 resolveSplice :: Options -> CompilerEnv -> Module () -> CYIO (Module ())
 resolveSplice opts env (Module x1 x2 x3 x4 x5 x6 ds) =
-  Module x1 x2 x3 x4 x5 x6 <$> mapM (declResolveSplice opts env x6) ds
+  Module x1 x2 x3 x4 x5 x6 <$> concatMapM (declResolveSplice opts env x6) ds
 
-declResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Decl () -> CYIO (Decl ())
+declResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Decl () -> CYIO [Decl ()]
 declResolveSplice opts env is (FunctionDecl x1 x2 x3 eqs) =
-  FunctionDecl x1 x2 x3 <$> mapM (eqResolveSplice opts env is) eqs
+  (:[]) . FunctionDecl x1 x2 x3 <$> mapM (eqResolveSplice opts env is) eqs
 declResolveSplice opts env is (PatternDecl x1 x2 rhs) =
-  PatternDecl x1 x2 <$> rhsResolveSplice opts env is rhs
+  (:[]) . PatternDecl x1 x2 <$> rhsResolveSplice opts env is rhs
 declResolveSplice opts env is (ClassDecl x1 x2 x3 x4 x5 x6 ds) =
-  ClassDecl x1 x2 x3 x4 x5 x6 <$> mapM (declResolveSplice opts env is) ds
+  (:[]) . ClassDecl x1 x2 x3 x4 x5 x6 <$> concatMapM (declResolveSplice opts env is) ds
 declResolveSplice opts env is (InstanceDecl x1 x2 x3 x4 x5 ds) =
-  InstanceDecl x1 x2 x3 x4 x5 <$> mapM (declResolveSplice opts env is) ds
-declResolveSplice _ _ _ decl = return decl
+  (:[]) . InstanceDecl x1 x2 x3 x4 x5 <$> concatMapM (declResolveSplice opts env is) ds
+declResolveSplice opts env is (TopLevelSplice _ e) = do
+  -- Here expression splices are run and evaluated to an actual expression.
+  -- maybe source everything till sDecl out into a function...
+  let useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
+      spliceDir = takeDirectory (filePath env)
+      modName     = moduleName (moduleIdent env) ++ "Splice"
+      spliceFcy = useSubDir (flatName (spliceDir </> modName))
+  fcy <- compileSplice opts env is modName e "[CFuncDecl]"
+  _ <- liftIO $ FC.writeFlatCurry spliceFcy fcy
+  sDecl <- liftIO $ runSplice spliceDir modName
+  -- Everything above this comment can be reused. Only thing that changes is the case
+  -- below this comment as that's the part where an expr, decl or typeExpr is created...
+  case readMaybe sDecl :: Maybe [AC.CFuncDecl] of
+    Just acDecl -> return (buildAstDecl acDecl)
+    Nothing     -> error "Error compiling splice."
+declResolveSplice _ _ _ decl = return [decl]
 
 eqResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Equation () -> CYIO (Equation ())
 eqResolveSplice opts env is (Equation x1 x2 x3 rhs) =
@@ -185,10 +204,10 @@ eqResolveSplice opts env is (Equation x1 x2 x3 rhs) =
 rhsResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Rhs () -> CYIO (Rhs ())
 rhsResolveSplice opts env is (SimpleRhs x1 x2 e ds) =
   SimpleRhs x1 x2 <$> exprResolveSplice opts env is e
-                  <*> mapM (declResolveSplice opts env is) ds
+                  <*> concatMapM (declResolveSplice opts env is) ds
 rhsResolveSplice opts env is (GuardedRhs x1 x2 ces ds) =
   GuardedRhs x1 x2 <$> mapM (condExprResolveSplice opts env is) ces
-                   <*> mapM (declResolveSplice opts env is) ds
+                   <*> concatMapM (declResolveSplice opts env is) ds
 
 condExprResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> CondExpr () -> CYIO (CondExpr ())
 condExprResolveSplice opts env is (CondExpr x1 g e) =
@@ -196,14 +215,16 @@ condExprResolveSplice opts env is (CondExpr x1 g e) =
 
 exprResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Expression () -> CYIO (Expression ())
 exprResolveSplice opts env is (ExprSplice _ e) = do
-  -- Doesn't run the splice yet ofc...
-  fcy <- compileSplice opts env is e
+  -- Here expression splices are run and evaluated to an actual expression.
   let useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
       spliceDir = takeDirectory (filePath env)
-      spliceFcy = useSubDir (flatName (spliceDir </> "Splice"))
-  _ <- liftIO $ FC.writeFlatCurry (useSubDir spliceFcy) fcy
-  sExp <- liftIO $ runSplice spliceDir
-  liftIO $ print sExp
+      modName     = moduleName (moduleIdent env) ++ "Splice"
+      spliceFcy = useSubDir (flatName (spliceDir </> modName))
+  fcy <- compileSplice opts env is modName e "CExpr"
+  _ <- liftIO $ FC.writeFlatCurry spliceFcy fcy
+  sExp <- liftIO $ runSplice spliceDir modName
+  -- Everything above this comment can be reused. Only thing that changes is the case
+  -- below this comment as that's the part where an expr, decl or typeExpr is created...
   case readMaybe sExp :: Maybe AC.CExpr of
     Just acExpr -> return (buildAstExpr acExpr)
     Nothing     -> error "Error compiling splice."
@@ -251,7 +272,7 @@ exprResolveSplice opts env is (RightSection x1 x2 e) =
 exprResolveSplice opts env is (Lambda x1 x2 e) =
   Lambda x1 x2 <$> exprResolveSplice opts env is e
 exprResolveSplice opts env is (Let x1 x2 ds e) =
-  Let x1 x2 <$> mapM (declResolveSplice opts env is) ds
+  Let x1 x2 <$> concatMapM (declResolveSplice opts env is) ds
             <*> exprResolveSplice opts env is e
 exprResolveSplice opts env is (Do x1 x2 ss e) =
   Do x1 x2 <$> mapM (stmtResolveSplice opts env is) ss
@@ -274,7 +295,7 @@ stmtResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Statement () -> C
 stmtResolveSplice opts env is (StmtExpr x1 e) =
   StmtExpr x1 <$> exprResolveSplice opts env is e
 stmtResolveSplice opts env is (StmtDecl x1 x2 ds) =
-  StmtDecl x1 x2 <$> mapM (declResolveSplice opts env is) ds
+  StmtDecl x1 x2 <$> concatMapM (declResolveSplice opts env is) ds
 stmtResolveSplice opts env is (StmtBind x1 x2 e) =
   StmtBind x1 x2 <$> exprResolveSplice opts env is e
 
@@ -286,11 +307,13 @@ resultStartMarker, resultEndMarker:: String
 resultStartMarker = "===SPLICE-RESULT-START==="
 resultEndMarker = "===SPLICE-RESULT-END==="
 
-runSplice :: FilePath -> IO String
-runSplice spliceDir = do
+-- moduleName (moduleIdent env) ++ "Splice"
+-- We might want the name of the module not to be hardcoded here...
+runSplice :: FilePath -> String -> IO String
+runSplice spliceDir ident = do
   out <- readCreateProcess (proc "pakcs" []) { cwd = Just spliceDir }
     (unlines
-    [ ":l Splice"
+    [ ":l " ++ ident
     , ":main"
     , ":q"
     ])
@@ -367,6 +390,12 @@ buildAstFuncDecl (CFunc qn _arity _vis _qty rules) =
     Equation NoSpanInfo Nothing
       (FunLhs NoSpanInfo n (map buildAstPattern ps))
       (buildAstRhs rhs)
+
+-- Converts the result of a top-level splice -- several distinct top-level
+-- functions, mirroring TH's 'Q [Dec]' -- into the declarations that should
+-- replace the single 'TopLevelSplice' node in the module's declaration list.
+buildAstDecl :: [CFuncDecl] -> [Decl ()]
+buildAstDecl = map buildAstFuncDecl
 
 buildAstRhs :: CRhs -> Rhs ()
 buildAstRhs (CSimpleRhs e ds) =
