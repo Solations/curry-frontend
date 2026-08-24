@@ -27,7 +27,7 @@ import Curry.Base.SpanInfo
 import Curry.Base.Monad (CYIO, failMessages, runCYIO)
 
 import qualified Curry.FlatCurry as FC (Prog, writeFlatCurry)
-import qualified Curry.AbstractCurry as AC (CExpr, CFuncDecl)
+import qualified Curry.AbstractCurry as AC (CExpr, CFuncDecl, CTypeExpr)
 import Curry.Files.Filenames (flatName, addOutDirModule)
 import System.FilePath (takeDirectory, (</>))
 
@@ -65,7 +65,7 @@ spliceCheck opts env m = do
 -- For now we don't need more code than the expression itself.
 -- We do still of course need imports... 
 -----------------------------------------------------------
-createModule :: [ImportDecl] -> String -> Expression () -> String -> Module ()
+createModule :: [ImportDecl] -> String -> Expression () -> TypeExpr -> Module ()
 createModule imports name e typ = Module
   NoSpanInfo
   WhitespaceLayout              -- LayoutInfo
@@ -111,8 +111,7 @@ createModule imports name e typ = Module
   seqExpr e1 e2 = InfixApply NoSpanInfo e1 (InfixOp () (qualify (mkIdent ">>"))) e2
 
   qExpType = ApplyType NoSpanInfo
-               (ConstructorType NoSpanInfo (qualify (mkIdent "Q")))
-               (ConstructorType NoSpanInfo (qualify (mkIdent typ)))
+               (ConstructorType NoSpanInfo (qualify (mkIdent "Q"))) typ
 
 withPrelude :: CompilerEnv -> [ImportDecl] -> [ImportDecl]
 withPrelude env imports
@@ -125,7 +124,7 @@ withPrelude env imports
 
 -- Runs pretty much the same pipeline Modules.hs does, but less checks
 -- this might have to change later, however we won't ever need the splice check ofc...
-compileSplice :: Options -> CompilerEnv -> [ImportDecl] -> String -> Expression () -> String
+compileSplice :: Options -> CompilerEnv -> [ImportDecl] -> String -> Expression () -> TypeExpr
               -> CYIO FC.Prog
 compileSplice opts env imports modName e typ = do
   let imports' = withPrelude env imports
@@ -172,22 +171,38 @@ resolveSplice opts env (Module x1 x2 x3 x4 x5 x6 ds) =
   Module x1 x2 x3 x4 x5 x6 <$> concatMapM (declResolveSplice opts env x6) ds
 
 declResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Decl () -> CYIO [Decl ()]
+declResolveSplice opts env is (DataDecl x1 x2 x3 cs x5) =
+  (:[]) . (\cs' -> DataDecl x1 x2 x3 cs' x5) <$> mapM (constrDeclResolveSplice opts env is) cs
+declResolveSplice opts env is (NewtypeDecl x1 x2 x3 nc x5) =
+  (:[]) . (\nc' -> NewtypeDecl x1 x2 x3 nc' x5) <$> newConstrDeclResolveSplice opts env is nc
+declResolveSplice opts env is (TypeDecl x1 x2 x3 ty) =
+  (:[]) . TypeDecl x1 x2 x3 <$> typeExprResolveSplice opts env is ty
+declResolveSplice opts env is (TypeSig x1 x2 qty) =
+  (:[]) . TypeSig x1 x2 <$> qualTypeExprResolveSplice opts env is qty
 declResolveSplice opts env is (FunctionDecl x1 x2 x3 eqs) =
   (:[]) . FunctionDecl x1 x2 x3 <$> mapM (eqResolveSplice opts env is) eqs
 declResolveSplice opts env is (PatternDecl x1 x2 rhs) =
   (:[]) . PatternDecl x1 x2 <$> rhsResolveSplice opts env is rhs
-declResolveSplice opts env is (ClassDecl x1 x2 x3 x4 x5 x6 ds) =
-  (:[]) . ClassDecl x1 x2 x3 x4 x5 x6 <$> concatMapM (declResolveSplice opts env is) ds
-declResolveSplice opts env is (InstanceDecl x1 x2 x3 x4 x5 ds) =
-  (:[]) . InstanceDecl x1 x2 x3 x4 x5 <$> concatMapM (declResolveSplice opts env is) ds
+declResolveSplice opts env is (DefaultDecl x1 tys) =
+  (:[]) . DefaultDecl x1 <$> mapM (typeExprResolveSplice opts env is) tys
+declResolveSplice opts env is (ClassDecl x1 x2 cx x4 x5 x6 ds) = do
+  cx' <- contextResolveSplice opts env is cx
+  ds' <- concatMapM (declResolveSplice opts env is) ds
+  return [ClassDecl x1 x2 cx' x4 x5 x6 ds']
+declResolveSplice opts env is (InstanceDecl x1 x2 cx x4 tys ds) = do
+  cx'  <- contextResolveSplice opts env is cx
+  tys' <- mapM (typeExprResolveSplice opts env is) tys
+  ds'  <- concatMapM (declResolveSplice opts env is) ds
+  return [InstanceDecl x1 x2 cx' x4 tys' ds']
 declResolveSplice opts env is (TopLevelSplice _ e) = do
   -- Here expression splices are run and evaluated to an actual expression.
   -- maybe source everything till sDecl out into a function...
-  let useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
+  let typ = ListType NoSpanInfo (ConstructorType NoSpanInfo (qualify (mkIdent "CFuncDecl")))
+      useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
       spliceDir = takeDirectory (filePath env)
       modName     = moduleName (moduleIdent env) ++ "Splice"
       spliceFcy = useSubDir (flatName (spliceDir </> modName))
-  fcy <- compileSplice opts env is modName e "[CFuncDecl]"
+  fcy <- compileSplice opts env is modName e typ
   _ <- liftIO $ FC.writeFlatCurry spliceFcy fcy
   sDecl <- liftIO $ runSplice spliceDir modName
   -- Everything above this comment can be reused. Only thing that changes is the case
@@ -216,11 +231,12 @@ condExprResolveSplice opts env is (CondExpr x1 g e) =
 exprResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Expression () -> CYIO (Expression ())
 exprResolveSplice opts env is (ExprSplice _ e) = do
   -- Here expression splices are run and evaluated to an actual expression.
-  let useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
+  let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CExpr"))
+      useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
       spliceDir = takeDirectory (filePath env)
       modName     = moduleName (moduleIdent env) ++ "Splice"
       spliceFcy = useSubDir (flatName (spliceDir </> modName))
-  fcy <- compileSplice opts env is modName e "CExpr"
+  fcy <- compileSplice opts env is modName e typ
   _ <- liftIO $ FC.writeFlatCurry spliceFcy fcy
   sExp <- liftIO $ runSplice spliceDir modName
   -- Everything above this comment can be reused. Only thing that changes is the case
@@ -230,8 +246,9 @@ exprResolveSplice opts env is (ExprSplice _ e) = do
     Nothing     -> error "Error compiling splice."
 exprResolveSplice opts env is (Paren x1 e) =
   Paren x1 <$> exprResolveSplice opts env is e
-exprResolveSplice opts env is (Typed x1 e x2) =
-  (\e' -> Typed x1 e' x2) <$> exprResolveSplice opts env is e
+exprResolveSplice opts env is (Typed x1 e ty) =
+  Typed x1 <$> exprResolveSplice opts env is e
+           <*> qualTypeExprResolveSplice opts env is ty
 exprResolveSplice opts env is (Record x1 x2 x3 fs) =
   Record x1 x2 x3 <$> mapM (fieldResolveSplice opts env is) fs
 exprResolveSplice opts env is (RecordUpdate x1 e fs) =
@@ -303,12 +320,73 @@ altResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Alt () -> CYIO (Al
 altResolveSplice opts env is (Alt x1 x2 rhs) =
   Alt x1 x2 <$> rhsResolveSplice opts env is rhs
 
+typeExprResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> TypeExpr -> CYIO TypeExpr
+typeExprResolveSplice _ _ _ ty@(ConstructorType _ _) = return ty
+typeExprResolveSplice opts env is (ApplyType x1 ty1 ty2) =
+  ApplyType x1 <$> typeExprResolveSplice opts env is ty1
+               <*> typeExprResolveSplice opts env is ty2
+typeExprResolveSplice _ _ _ ty@(VariableType _ _) = return ty
+typeExprResolveSplice opts env is (TupleType x1 tys) =
+  TupleType x1 <$> mapM (typeExprResolveSplice opts env is) tys
+typeExprResolveSplice opts env is (ListType x1 ty) =
+  ListType x1 <$> typeExprResolveSplice opts env is ty
+typeExprResolveSplice opts env is (ArrowType x1 ty1 ty2) =
+  ArrowType x1 <$> typeExprResolveSplice opts env is ty1
+               <*> typeExprResolveSplice opts env is ty2
+typeExprResolveSplice opts env is (ParenType x1 ty) =
+  ParenType x1 <$> typeExprResolveSplice opts env is ty
+typeExprResolveSplice opts env is (ForallType x1 vs ty) =
+  ForallType x1 vs <$> typeExprResolveSplice opts env is ty
+typeExprResolveSplice opts env is (TypeExprSplice _ e) = do
+  -- Here type-expression splices are run and evaluated to an actual type.
+  let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CTypeExpr"))
+      useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
+      spliceDir = takeDirectory (filePath env)
+      modName   = moduleName (moduleIdent env) ++ "Splice"
+      spliceFcy = useSubDir (flatName (spliceDir </> modName))
+  fcy <- compileSplice opts env is modName e typ
+  _ <- liftIO $ FC.writeFlatCurry spliceFcy fcy
+  sTyp <- liftIO $ runSplice spliceDir modName
+  case readMaybe sTyp :: Maybe AC.CTypeExpr of
+    Just acTyp -> return (buildAstTypeExpr acTyp)
+    Nothing   -> error "Error compiling splice."
+
+qualTypeExprResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> QualTypeExpr -> CYIO QualTypeExpr
+qualTypeExprResolveSplice opts env is (QualTypeExpr x1 cx ty) =
+  QualTypeExpr x1 <$> contextResolveSplice opts env is cx
+                  <*> typeExprResolveSplice opts env is ty
+
+contextResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Context -> CYIO Context
+contextResolveSplice opts env is = mapM (constraintResolveSplice opts env is)
+
+constraintResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Constraint -> CYIO Constraint
+constraintResolveSplice opts env is (Constraint x1 qcls tys) =
+  Constraint x1 qcls <$> mapM (typeExprResolveSplice opts env is) tys
+
+constrDeclResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> ConstrDecl -> CYIO ConstrDecl
+constrDeclResolveSplice opts env is (ConstrDecl x1 c tys) =
+  ConstrDecl x1 c <$> mapM (typeExprResolveSplice opts env is) tys
+constrDeclResolveSplice opts env is (ConOpDecl x1 ty1 op ty2) =
+  (\ty1' ty2' -> ConOpDecl x1 ty1' op ty2')
+    <$> typeExprResolveSplice opts env is ty1
+    <*> typeExprResolveSplice opts env is ty2
+constrDeclResolveSplice opts env is (RecordDecl x1 c fs) =
+  RecordDecl x1 c <$> mapM (fieldDeclResolveSplice opts env is) fs
+
+newConstrDeclResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> NewConstrDecl -> CYIO NewConstrDecl
+newConstrDeclResolveSplice opts env is (NewConstrDecl x1 c ty) =
+  NewConstrDecl x1 c <$> typeExprResolveSplice opts env is ty
+newConstrDeclResolveSplice opts env is (NewRecordDecl x1 c (l, ty)) =
+  (\ty' -> NewRecordDecl x1 c (l, ty')) <$> typeExprResolveSplice opts env is ty
+
+fieldDeclResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> FieldDecl -> CYIO FieldDecl
+fieldDeclResolveSplice opts env is (FieldDecl x1 ls ty) =
+  FieldDecl x1 ls <$> typeExprResolveSplice opts env is ty
+
 resultStartMarker, resultEndMarker:: String
 resultStartMarker = "===SPLICE-RESULT-START==="
 resultEndMarker = "===SPLICE-RESULT-END==="
 
--- moduleName (moduleIdent env) ++ "Splice"
--- We might want the name of the module not to be hardcoded here...
 runSplice :: FilePath -> String -> IO String
 runSplice spliceDir ident = do
   out <- readCreateProcess (proc "pakcs" []) { cwd = Just spliceDir }
