@@ -196,17 +196,8 @@ declResolveSplice opts env is (InstanceDecl x1 x2 cx x4 tys ds) = do
   return [InstanceDecl x1 x2 cx' x4 tys' ds']
 declResolveSplice opts env is (TopLevelSplice _ e) = do
   -- Here expression splices are run and evaluated to an actual expression.
-  -- maybe source everything till sDecl out into a function...
   let typ = ListType NoSpanInfo (ConstructorType NoSpanInfo (qualify (mkIdent "CFuncDecl")))
-      useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
-      spliceDir = takeDirectory (filePath env)
-      modName     = moduleName (moduleIdent env) ++ "Splice"
-      spliceFcy = useSubDir (flatName (spliceDir </> modName))
-  fcy <- compileSplice opts env is modName e typ
-  _ <- liftIO $ FC.writeFlatCurry spliceFcy fcy
-  sDecl <- liftIO $ runSplice spliceDir modName
-  -- Everything above this comment can be reused. Only thing that changes is the case
-  -- below this comment as that's the part where an expr, decl or typeExpr is created...
+  sDecl <- turnSpliceIntoSpring opts env is e typ
   case readMaybe sDecl :: Maybe [AC.CFuncDecl] of
     Just acDecl -> return (buildAstDecl acDecl)
     Nothing     -> error "Error compiling splice."
@@ -232,15 +223,7 @@ exprResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Expression () -> 
 exprResolveSplice opts env is (ExprSplice _ e) = do
   -- Here expression splices are run and evaluated to an actual expression.
   let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CExpr"))
-      useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
-      spliceDir = takeDirectory (filePath env)
-      modName     = moduleName (moduleIdent env) ++ "Splice"
-      spliceFcy = useSubDir (flatName (spliceDir </> modName))
-  fcy <- compileSplice opts env is modName e typ
-  _ <- liftIO $ FC.writeFlatCurry spliceFcy fcy
-  sExp <- liftIO $ runSplice spliceDir modName
-  -- Everything above this comment can be reused. Only thing that changes is the case
-  -- below this comment as that's the part where an expr, decl or typeExpr is created...
+  sExp <- turnSpliceIntoSpring opts env is e typ
   case readMaybe sExp :: Maybe AC.CExpr of
     Just acExpr -> return (buildAstExpr acExpr)
     Nothing     -> error "Error compiling splice."
@@ -338,15 +321,8 @@ typeExprResolveSplice opts env is (ParenType x1 ty) =
 typeExprResolveSplice opts env is (ForallType x1 vs ty) =
   ForallType x1 vs <$> typeExprResolveSplice opts env is ty
 typeExprResolveSplice opts env is (TypeExprSplice _ e) = do
-  -- Here type-expression splices are run and evaluated to an actual type.
   let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CTypeExpr"))
-      useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
-      spliceDir = takeDirectory (filePath env)
-      modName   = moduleName (moduleIdent env) ++ "Splice"
-      spliceFcy = useSubDir (flatName (spliceDir </> modName))
-  fcy <- compileSplice opts env is modName e typ
-  _ <- liftIO $ FC.writeFlatCurry spliceFcy fcy
-  sTyp <- liftIO $ runSplice spliceDir modName
+  sTyp <- turnSpliceIntoSpring opts env is e typ
   case readMaybe sTyp :: Maybe AC.CTypeExpr of
     Just acTyp -> return (buildAstTypeExpr acTyp)
     Nothing   -> error "Error compiling splice."
@@ -529,3 +505,13 @@ buildAstLit (CIntc n)    = Int n
 buildAstLit (CFloatc f)  = Float f
 buildAstLit (CCharc c)   = Char c
 buildAstLit (CStringc s) = String s
+
+turnSpliceIntoSpring :: Options -> CompilerEnv -> [ImportDecl] -> Expression () -> TypeExpr -> CYIO String
+turnSpliceIntoSpring opts env is e typ = do
+  let useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
+      spliceDir = takeDirectory (filePath env)
+      modName     = moduleName (moduleIdent env) ++ "Splice"
+      spliceFcy = useSubDir (flatName (spliceDir </> modName))
+  fcy <- compileSplice opts env is modName e typ
+  _ <- liftIO $ FC.writeFlatCurry spliceFcy fcy
+  liftIO $ runSplice spliceDir modName
