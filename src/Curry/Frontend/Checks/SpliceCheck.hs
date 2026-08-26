@@ -194,13 +194,15 @@ declResolveSplice opts env is (InstanceDecl x1 x2 cx x4 tys ds) = do
   tys' <- mapM (typeExprResolveSplice opts env is) tys
   ds'  <- concatMapM (declResolveSplice opts env is) ds
   return [InstanceDecl x1 x2 cx' x4 tys' ds']
-declResolveSplice opts env is (TopLevelSplice _ e) = do
-  -- Here expression splices are run and evaluated to an actual expression.
-  let typ = ListType NoSpanInfo (ConstructorType NoSpanInfo (qualify (mkIdent "CFuncDecl")))
-  sDecl <- turnSpliceIntoSpring opts env is e typ
-  case readMaybe sDecl :: Maybe [AC.CFuncDecl] of
-    Just acDecl -> return (buildAstDecl acDecl)
-    Nothing     -> error "Error compiling splice."
+declResolveSplice opts env is (TopLevelSplice _ e) 
+  | mkMIdent ["templateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
+    -- Here expression splices are run and evaluated to an actual expression.
+    let typ = ListType NoSpanInfo (ConstructorType NoSpanInfo (qualify (mkIdent "CFuncDecl")))
+    sDecl <- turnSpliceIntoSpring opts env is e typ
+    case readMaybe sDecl :: Maybe [AC.CFuncDecl] of
+      Just acDecl -> return (buildAstDecl acDecl)
+      Nothing     -> error "Error compiling splice."
+  | otherwise = error "Please use languge-extension template-curry to use splices."
 declResolveSplice _ _ _ decl = return [decl]
 
 eqResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Equation () -> CYIO (Equation ())
@@ -220,13 +222,15 @@ condExprResolveSplice opts env is (CondExpr x1 g e) =
   CondExpr x1 <$> exprResolveSplice opts env is g <*> exprResolveSplice opts env is e
 
 exprResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Expression () -> CYIO (Expression ())
-exprResolveSplice opts env is (ExprSplice _ e) = do
-  -- Here expression splices are run and evaluated to an actual expression.
-  let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CExpr"))
-  sExp <- turnSpliceIntoSpring opts env is e typ
-  case readMaybe sExp :: Maybe AC.CExpr of
-    Just acExpr -> return (buildAstExpr acExpr)
-    Nothing     -> error "Error compiling splice."
+exprResolveSplice opts env is (ExprSplice _ e)
+  | mkMIdent ["templateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
+    -- Here expression splices are run and evaluated to an actual expression.
+    let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CExpr"))
+    sExp <- turnSpliceIntoSpring opts env is e typ
+    case readMaybe sExp :: Maybe AC.CExpr of
+      Just acExpr -> return (buildAstExpr acExpr)
+      Nothing     -> error "Error compiling splice."
+  | otherwise = error "Please use languge-extension template-curry to use splices."
 exprResolveSplice opts env is (Paren x1 e) =
   Paren x1 <$> exprResolveSplice opts env is e
 exprResolveSplice opts env is (Typed x1 e ty) =
@@ -320,12 +324,14 @@ typeExprResolveSplice opts env is (ParenType x1 ty) =
   ParenType x1 <$> typeExprResolveSplice opts env is ty
 typeExprResolveSplice opts env is (ForallType x1 vs ty) =
   ForallType x1 vs <$> typeExprResolveSplice opts env is ty
-typeExprResolveSplice opts env is (TypeExprSplice _ e) = do
-  let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CTypeExpr"))
-  sTyp <- turnSpliceIntoSpring opts env is e typ
-  case readMaybe sTyp :: Maybe AC.CTypeExpr of
-    Just acTyp -> return (buildAstTypeExpr acTyp)
-    Nothing   -> error "Error compiling splice."
+typeExprResolveSplice opts env is (TypeExprSplice _ e) 
+  | mkMIdent ["templateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
+    let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CTypeExpr"))
+    sTyp <- turnSpliceIntoSpring opts env is e typ
+    case readMaybe sTyp :: Maybe AC.CTypeExpr of
+      Just acTyp -> return (buildAstTypeExpr acTyp)
+      Nothing   -> error "Error compiling splice."
+  | otherwise = error "Please use languge-extension template-curry to use splices."
 
 qualTypeExprResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> QualTypeExpr -> CYIO QualTypeExpr
 qualTypeExprResolveSplice opts env is (QualTypeExpr x1 cx ty) =
@@ -445,9 +451,6 @@ buildAstFuncDecl (CFunc qn _arity _vis _qty rules) =
       (FunLhs NoSpanInfo n (map buildAstPattern ps))
       (buildAstRhs rhs)
 
--- Converts the result of a top-level splice -- several distinct top-level
--- functions, mirroring TH's 'Q [Dec]' -- into the declarations that should
--- replace the single 'TopLevelSplice' node in the module's declaration list.
 buildAstDecl :: [CFuncDecl] -> [Decl ()]
 buildAstDecl = map buildAstFuncDecl
 
