@@ -52,119 +52,16 @@ import Curry.AbstractCurry.Type
   , CTypeExpr (..), CContext (..), QName, CVarIName
   )
 
---------------------------------------------------
--- I might wanna reorder all the functions in this module at some point...
---------------------------------------------------
+resultStartMarker, resultEndMarker:: String
+resultStartMarker = "===SPLICE-RESULT-START==="
+resultEndMarker = "===SPLICE-RESULT-END==="
+
 spliceCheck :: Options -> CompilerEnv -> Module () -> IO (Module (), [Message])
 spliceCheck opts env m = do
   (result, warnings) <- runCYIO (resolveSplice opts env m)
   case result of
     Left errs -> return(m, errs)
     Right m' -> return (m', warnings)
-
--- For now we don't need more code than the expression itself.
--- We do still of course need imports... 
------------------------------------------------------------
-createModule :: [ImportDecl] -> String -> Expression () -> TypeExpr -> Module ()
-createModule imports name e typ = Module
-  NoSpanInfo
-  WhitespaceLayout              -- LayoutInfo
-  []                            -- [ModulePragma]
-  (mkMIdent [name])             -- ModuleIdent
-  Nothing                       -- Maybe ExportSpec
-  imports                      -- [ImportDecl]
-  [ FunctionDecl
-      NoSpanInfo
-      ()                        -- Type
-      (mkIdent "main")          -- Ident
-      [ Equation
-          NoSpanInfo
-          Nothing               -- Type
-          (FunLhs NoSpanInfo (mkIdent "main") [])
-          (SimpleRhs
-            NoSpanInfo
-            WhitespaceLayout
-            mainBody
-            []
-          )
-      ]
-  ]
-  where
-  -- main = putStrLn resultStartMarker
-  --     >> (qtoIO (e :: Q CExpr) >>= print
-  --     >> putStrLn resultEndMarker)
-
-  mainBody = putStrLnExpr resultStartMarker `seqExpr`
-               (qtoIOPrint `seqExpr` putStrLnExpr resultEndMarker)
-
-  qtoIOPrint = InfixApply NoSpanInfo
-                 (Apply NoSpanInfo
-                    (Variable NoSpanInfo () (qualify (mkIdent "qtoIO")))
-                    (Typed NoSpanInfo e (QualTypeExpr NoSpanInfo [] qExpType)))
-                 (InfixOp () (qualify (mkIdent ">>=")))
-                 (Variable NoSpanInfo () (qualify (mkIdent "print")))
-
-  putStrLnExpr s = Apply NoSpanInfo
-                     (Variable NoSpanInfo () (qualify (mkIdent "putStrLn")))
-                     (Literal NoSpanInfo () (String s))
-
-  seqExpr e1 e2 = InfixApply NoSpanInfo e1 (InfixOp () (qualify (mkIdent ">>"))) e2
-
-  qExpType = ApplyType NoSpanInfo
-               (ConstructorType NoSpanInfo (qualify (mkIdent "Q"))) typ
-
-withPrelude :: CompilerEnv -> [ImportDecl] -> [ImportDecl]
-withPrelude env imports
-  | NoImplicitPrelude `elem` extensions env = imports
-  | preludeMIdent `elem` importedModules    = imports
-  | otherwise                               = preludeImport : imports
-  where
-  importedModules = [m | ImportDecl _ m _ _ _ <- imports]
-  preludeImport   = ImportDecl NoSpanInfo preludeMIdent False Nothing Nothing
-
--- Runs pretty much the same pipeline Modules.hs does, but less checks
--- this might have to change later, however we won't ever need the splice check ofc...
-compileSplice :: Options -> CompilerEnv -> [ImportDecl] -> String -> Expression () -> TypeExpr
-              -> CYIO FC.Prog
-compileSplice opts env imports modName e typ = do
-  let imports' = withPrelude env imports
-      mdl0     = createModule imports' modName e typ
-  env0 <- importModules mdl0 (interfaceEnv env) imports'
-
-  let env0' = env0 { extensions = extensions env }
-
-  let ((mdl1, exts1), msgs1) =
-        SC.syntaxCheck (extensions env0') (tyConsEnv env0') (valueEnv env0') mdl0
-  unless (null msgs1) $ failMessages msgs1
-  let env1 = env0' { extensions = exts1 }
-
-  let Module spi li ps mid es is ds1 = mdl1
-      (ds2, pEnv2, msgs2)            = PC.precCheck mid (opPrecEnv env1) ds1
-  unless (null msgs2) $ failMessages msgs2
-  let env2 = env1 { opPrecEnv = pEnv2 }
-
-  let (ds3, vEnv3, msgs3) = TC.typeCheck
-        (extensions env2) mid (tyConsEnv env2) (valueEnv env2)
-        (classEnv env2) (instEnv env2) ds2
-  unless (null msgs3) $ failMessages msgs3
-  let env3 = env2 { valueEnv = vEnv3 }
-      es'  = EC.expandExports mid (aliasEnv env3) (tyConsEnv env3) vEnv3 es
-      mdl3 = Module spi li ps mid (Just es') is ds3
-
-  let optOpts             = optOptimizations opts
-      qualified           = qual (env3, mdl3)
-      derived             = derive qualified
-      desugared           = desugar derived
-      dicts               = insertDicts (optInlineDictionaries optOpts) desugared
-      newtypes@(_, ntMdl)  = removeNewtypes (optDesugarNewtypes optOpts) dicts
-      simplified          = simplify newtypes
-      lifted              = lift simplified
-      il                  = ilTrans lifted
-      (ilEnv, ilMdl)      = completeCase (optAddFailed optOpts) il
-
-      afcy = genAnnotatedFlatCurry (optRemoveUnusedImports optOpts) ilEnv ntMdl ilMdl
-
-  return $ genFlatCurry afcy
 
 resolveSplice :: Options -> CompilerEnv -> Module () -> CYIO (Module ())
 resolveSplice opts env (Module x1 x2 x3 x4 x5 x6 ds) =
@@ -365,25 +262,6 @@ fieldDeclResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> FieldDecl ->
 fieldDeclResolveSplice opts env is (FieldDecl x1 ls ty) =
   FieldDecl x1 ls <$> typeExprResolveSplice opts env is ty
 
-resultStartMarker, resultEndMarker:: String
-resultStartMarker = "===SPLICE-RESULT-START==="
-resultEndMarker = "===SPLICE-RESULT-END==="
-
-runSplice :: FilePath -> String -> IO String
-runSplice spliceDir ident = do
-  out <- readCreateProcess (proc "pakcs" []) { cwd = Just spliceDir }
-    (unlines
-    [ ":l " ++ ident
-    , ":main"
-    , ":q"
-    ])
-  return (extractResult out)
-
-extractResult :: String -> String
-extractResult output = 
-  let afterStart = drop 1 $ dropWhile (/=resultStartMarker) (lines output)
-  in unlines (takeWhile (/=resultEndMarker) afterStart)
-
 buildAstExpr :: CExpr -> Expression ()
 buildAstExpr (CVar vn) =
   Variable NoSpanInfo () (qualify (buildAstIdent vn))
@@ -495,11 +373,6 @@ buildAstQualIdent :: QName -> QualIdent
 buildAstQualIdent ("", n) = qualify (mkIdent n)
 buildAstQualIdent (m, n)  = qualifyWith (mkMIdent (splitModuleName m)) (mkIdent n)
 
-splitModuleName :: String -> [String]
-splitModuleName s = case break (== '.') s of
-  (m, '.':rest) -> m : splitModuleName rest
-  (m, _)        -> [m]
-
 buildAstIdent :: CVarIName -> Ident
 buildAstIdent (_, n) = mkIdent n
 
@@ -518,3 +391,127 @@ turnSpliceIntoSpring opts env is e typ = do
   fcy <- compileSplice opts env is modName e typ
   _ <- liftIO $ FC.writeFlatCurry spliceFcy fcy
   liftIO $ runSplice spliceDir modName
+
+splitModuleName :: String -> [String]
+splitModuleName s = case break (== '.') s of
+  (m, '.':rest) -> m : splitModuleName rest
+  (m, _)        -> [m]
+
+runSplice :: FilePath -> String -> IO String
+runSplice spliceDir ident = do
+  out <- readCreateProcess (proc "pakcs" []) { cwd = Just spliceDir }
+    (unlines
+    [ ":l " ++ ident
+    , ":main"
+    , ":q"
+    ])
+  return (extractResult out)
+
+extractResult :: String -> String
+extractResult output = 
+  let afterStart = drop 1 $ dropWhile (/=resultStartMarker) (lines output)
+  in unlines (takeWhile (/=resultEndMarker) afterStart)
+
+-- For now we don't need more code than the expression itself.
+-- We do still of course need imports... 
+-----------------------------------------------------------
+createModule :: [ImportDecl] -> String -> Expression () -> TypeExpr -> Module ()
+createModule imports name e typ = Module
+  NoSpanInfo
+  WhitespaceLayout              -- LayoutInfo
+  []                            -- [ModulePragma]
+  (mkMIdent [name])             -- ModuleIdent
+  Nothing                       -- Maybe ExportSpec
+  imports                      -- [ImportDecl]
+  [ FunctionDecl
+      NoSpanInfo
+      ()                        -- Type
+      (mkIdent "main")          -- Ident
+      [ Equation
+          NoSpanInfo
+          Nothing               -- Type
+          (FunLhs NoSpanInfo (mkIdent "main") [])
+          (SimpleRhs
+            NoSpanInfo
+            WhitespaceLayout
+            mainBody
+            []
+          )
+      ]
+  ]
+  where
+  -- main = putStrLn resultStartMarker
+  --     >> (qtoIO (e :: Q CExpr) >>= print
+  --     >> putStrLn resultEndMarker)
+
+  mainBody = putStrLnExpr resultStartMarker `seqExpr`
+               (qtoIOPrint `seqExpr` putStrLnExpr resultEndMarker)
+
+  qtoIOPrint = InfixApply NoSpanInfo
+                 (Apply NoSpanInfo
+                    (Variable NoSpanInfo () (qualify (mkIdent "qtoIO")))
+                    (Typed NoSpanInfo e (QualTypeExpr NoSpanInfo [] qExpType)))
+                 (InfixOp () (qualify (mkIdent ">>=")))
+                 (Variable NoSpanInfo () (qualify (mkIdent "print")))
+
+  putStrLnExpr s = Apply NoSpanInfo
+                     (Variable NoSpanInfo () (qualify (mkIdent "putStrLn")))
+                     (Literal NoSpanInfo () (String s))
+
+  seqExpr e1 e2 = InfixApply NoSpanInfo e1 (InfixOp () (qualify (mkIdent ">>"))) e2
+
+  qExpType = ApplyType NoSpanInfo
+               (ConstructorType NoSpanInfo (qualify (mkIdent "Q"))) typ
+
+withPrelude :: CompilerEnv -> [ImportDecl] -> [ImportDecl]
+withPrelude env imports
+  | NoImplicitPrelude `elem` extensions env = imports
+  | preludeMIdent `elem` importedModules    = imports
+  | otherwise                               = preludeImport : imports
+  where
+  importedModules = [m | ImportDecl _ m _ _ _ <- imports]
+  preludeImport   = ImportDecl NoSpanInfo preludeMIdent False Nothing Nothing
+
+-- Runs pretty much the same pipeline Modules.hs does, but less checks
+-- this might have to change later, however we won't ever need the splice check ofc...
+compileSplice :: Options -> CompilerEnv -> [ImportDecl] -> String -> Expression () -> TypeExpr
+              -> CYIO FC.Prog
+compileSplice opts env imports modName e typ = do
+  let imports' = withPrelude env imports
+      mdl0     = createModule imports' modName e typ
+  env0 <- importModules mdl0 (interfaceEnv env) imports'
+
+  let env0' = env0 { extensions = extensions env }
+
+  let ((mdl1, exts1), msgs1) =
+        SC.syntaxCheck (extensions env0') (tyConsEnv env0') (valueEnv env0') mdl0
+  unless (null msgs1) $ failMessages msgs1
+  let env1 = env0' { extensions = exts1 }
+
+  let Module spi li ps mid es is ds1 = mdl1
+      (ds2, pEnv2, msgs2)            = PC.precCheck mid (opPrecEnv env1) ds1
+  unless (null msgs2) $ failMessages msgs2
+  let env2 = env1 { opPrecEnv = pEnv2 }
+
+  let (ds3, vEnv3, msgs3) = TC.typeCheck
+        (extensions env2) mid (tyConsEnv env2) (valueEnv env2)
+        (classEnv env2) (instEnv env2) ds2
+  unless (null msgs3) $ failMessages msgs3
+  let env3 = env2 { valueEnv = vEnv3 }
+      es'  = EC.expandExports mid (aliasEnv env3) (tyConsEnv env3) vEnv3 es
+      mdl3 = Module spi li ps mid (Just es') is ds3
+
+  let optOpts             = optOptimizations opts
+      qualified           = qual (env3, mdl3)
+      derived             = derive qualified
+      desugared           = desugar derived
+      dicts               = insertDicts (optInlineDictionaries optOpts) desugared
+      newtypes@(_, ntMdl)  = removeNewtypes (optDesugarNewtypes optOpts) dicts
+      simplified          = simplify newtypes
+      lifted              = lift simplified
+      il                  = ilTrans lifted
+      (ilEnv, ilMdl)      = completeCase (optAddFailed optOpts) il
+
+      afcy = genAnnotatedFlatCurry (optRemoveUnusedImports optOpts) ilEnv ntMdl ilMdl
+
+  return $ genFlatCurry afcy
