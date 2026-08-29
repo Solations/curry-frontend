@@ -24,6 +24,8 @@ import Control.Monad.IO.Class (liftIO)
 import Curry.Syntax.Type
 import Curry.Base.Ident
 import Curry.Base.SpanInfo
+import Curry.Base.Span
+import Curry.Base.Position
 import Curry.Base.Monad (CYIO, failMessages, runCYIO)
 
 import qualified Curry.FlatCurry as FC (Prog, writeFlatCurry)
@@ -91,11 +93,11 @@ declResolveSplice opts env is (InstanceDecl x1 x2 cx x4 tys ds) = do
   tys' <- mapM (typeExprResolveSplice opts env is) tys
   ds'  <- concatMapM (declResolveSplice opts env is) ds
   return [InstanceDecl x1 x2 cx' x4 tys' ds']
-declResolveSplice opts env is (TopLevelSplice _ e) 
+declResolveSplice opts env is (TopLevelSplice sp e) 
   | mkMIdent ["templateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
     -- Here expression splices are run and evaluated to an actual expression.
     let typ = ListType NoSpanInfo (ConstructorType NoSpanInfo (qualify (mkIdent "CFuncDecl")))
-    sDecl <- turnSpliceIntoSpring opts env is e typ
+    sDecl <- turnSpliceIntoSpring sp opts env is e typ
     case readMaybe sDecl :: Maybe [AC.CFuncDecl] of
       Just acDecl -> return (buildAstDecl acDecl)
       Nothing     -> error "Error compiling splice."
@@ -119,11 +121,11 @@ condExprResolveSplice opts env is (CondExpr x1 g e) =
   CondExpr x1 <$> exprResolveSplice opts env is g <*> exprResolveSplice opts env is e
 
 exprResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Expression () -> CYIO (Expression ())
-exprResolveSplice opts env is (ExprSplice _ e)
+exprResolveSplice opts env is (ExprSplice sp e)
   | mkMIdent ["templateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
     -- Here expression splices are run and evaluated to an actual expression.
     let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CExpr"))
-    sExp <- turnSpliceIntoSpring opts env is e typ
+    sExp <- turnSpliceIntoSpring sp opts env is e typ
     case readMaybe sExp :: Maybe AC.CExpr of
       Just acExpr -> return (buildAstExpr acExpr)
       Nothing     -> error "Error compiling splice."
@@ -221,10 +223,10 @@ typeExprResolveSplice opts env is (ParenType x1 ty) =
   ParenType x1 <$> typeExprResolveSplice opts env is ty
 typeExprResolveSplice opts env is (ForallType x1 vs ty) =
   ForallType x1 vs <$> typeExprResolveSplice opts env is ty
-typeExprResolveSplice opts env is (TypeExprSplice _ e) 
+typeExprResolveSplice opts env is (TypeExprSplice sp e) 
   | mkMIdent ["templateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
     let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CTypeExpr"))
-    sTyp <- turnSpliceIntoSpring opts env is e typ
+    sTyp <- turnSpliceIntoSpring sp opts env is e typ
     case readMaybe sTyp :: Maybe AC.CTypeExpr of
       Just acTyp -> return (buildAstTypeExpr acTyp)
       Nothing   -> error "Error compiling splice."
@@ -382,15 +384,18 @@ buildAstLit (CFloatc f)  = Float f
 buildAstLit (CCharc c)   = Char c
 buildAstLit (CStringc s) = String s
 
-turnSpliceIntoSpring :: Options -> CompilerEnv -> [ImportDecl] -> Expression () -> TypeExpr -> CYIO String
-turnSpliceIntoSpring opts env is e typ = do
+turnSpliceIntoSpring :: SpanInfo -> Options -> CompilerEnv -> [ImportDecl] -> Expression () -> TypeExpr -> CYIO String
+turnSpliceIntoSpring sp opts env is e typ = do
   let useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
       spliceDir = takeDirectory (filePath env)
-      modName     = moduleName (moduleIdent env) ++ "Splice"
+      modName     = moduleName (moduleIdent env) ++ "Splice" ++ positionTag sp
       spliceFcy = useSubDir (flatName (spliceDir </> modName))
   fcy <- compileSplice opts env is modName e typ
   _ <- liftIO $ FC.writeFlatCurry spliceFcy fcy
   liftIO $ runSplice spliceDir modName
+  where 
+    positionTag sp = show (line (start (srcSpan sp))) ++  "_" ++
+      show (column (start (srcSpan sp)))
 
 splitModuleName :: String -> [String]
 splitModuleName s = case break (== '.') s of

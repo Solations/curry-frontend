@@ -590,7 +590,8 @@ instanceDecl = mkInstance
 topLevelSplice :: Parser a Token (Decl ())
 topLevelSplice = mkSplice <$> spliceSp expr0
   where
-  mkSplice (e, sp1, sp2) = TopLevelSplice NoSpanInfo (updateSpanWithSplice (e, sp1, sp2))
+  mkSplice (e, sp1, sp2) = TopLevelSplice (getSpanInfo e') e'
+    where e' = updateSpanWithSplice (e, sp1, sp2)
 -- ---------------------------------------------------------------------------
 -- Type classes
 -- ---------------------------------------------------------------------------
@@ -720,7 +721,9 @@ listType = ListType NoSpanInfo <$> type0
 -- spliceType ::= $(type)
 spliceType :: Parser a Token TypeExpr
 spliceType = mkTypeExprSplice <$> spliceSp expr0
-  where mkTypeExprSplice (ex, sp1, sp2) = TypeExprSplice NoSpanInfo (updateSpanWithSplice (ex, sp1, sp2))
+  where
+  mkTypeExprSplice (ex, sp1, sp2) = TypeExprSplice (getSpanInfo ex') ex'
+    where ex' = updateSpanWithSplice (ex, sp1, sp2)
 
 -- ---------------------------------------------------------------------------
 -- Literals
@@ -1123,7 +1126,8 @@ field p = mkField <$> spanPosition <*> qfun
 spliceExpr :: Parser a Token (Expression())
 spliceExpr = mkSplice <$> spliceSp expr0 
   where
-    mkSplice (ex, sp1, sp2) = ExprSplice NoSpanInfo (updateSpanWithSplice (ex, sp1, sp2))
+    mkSplice (ex, sp1, sp2) = ExprSplice (getSpanInfo ex') ex'
+      where ex' = updateSpanWithSplice (ex, sp1, sp2)
 
 -- ---------------------------------------------------------------------------
 -- \paragraph{Statements in list comprehensions and \texttt{do} expressions}
