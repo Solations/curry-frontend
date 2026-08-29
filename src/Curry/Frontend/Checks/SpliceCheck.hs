@@ -260,7 +260,8 @@ newConstrDeclResolveSplice opts env is (NewConstrDecl x1 c ty) =
 newConstrDeclResolveSplice opts env is (NewRecordDecl x1 c (l, ty)) =
   (\ty' -> NewRecordDecl x1 c (l, ty')) <$> typeExprResolveSplice opts env is ty
 
-fieldDeclResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> FieldDecl -> CYIO FieldDecl
+fieldDeclResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> FieldDecl ->
+  CYIO FieldDecl
 fieldDeclResolveSplice opts env is (FieldDecl x1 ls ty) =
   FieldDecl x1 ls <$> typeExprResolveSplice opts env is ty
 
@@ -276,7 +277,7 @@ buildAstExpr (CApply e1 e2) =
 buildAstExpr (CLambda ps e) =
   Lambda NoSpanInfo (map buildAstPattern ps) (buildAstExpr e)
 buildAstExpr (CLetDecl ds e) =
-  Let NoSpanInfo WhitespaceLayout (map buildAstLocalDecl ds) (buildAstExpr e)
+  Let NoSpanInfo WhitespaceLayout (concatMap buildAstLocalDecl ds) (buildAstExpr e)
 buildAstExpr (CDoExpr sts) =
   uncurry (Do NoSpanInfo WhitespaceLayout) (buildAstDoBody sts)
 buildAstExpr (CListComp e sts) =
@@ -313,39 +314,39 @@ buildAstPattern (CPLazy p) =
 buildAstPattern (CPRecord qn fs) =
   RecordPattern NoSpanInfo () (buildAstQualIdent qn) (map (buildAstField buildAstPattern) fs)
 
-buildAstLocalDecl :: CLocalDecl -> Decl ()
+buildAstLocalDecl :: CLocalDecl -> [Decl ()]
 buildAstLocalDecl (CLocalFunc fd)   = buildAstFuncDecl fd
-buildAstLocalDecl (CLocalPat p rhs) = PatternDecl NoSpanInfo (buildAstPattern p) (buildAstRhs rhs)
-buildAstLocalDecl (CLocalVars vns)  = FreeDecl NoSpanInfo (map (Var () . buildAstIdent) vns)
+buildAstLocalDecl (CLocalPat p rhs) = [PatternDecl NoSpanInfo (buildAstPattern p) (buildAstRhs rhs)]
+buildAstLocalDecl (CLocalVars vns)  = [FreeDecl NoSpanInfo (map (Var () . buildAstIdent) vns)]
 
--- Doesn't emit a separate 'TypeSig' for the function's 'CQualTypeExpr' --
--- local (let/where) functions don't need one, and it keeps this a clean
--- one-'CLocalDecl'-to-one-'Decl' mapping.
-buildAstFuncDecl :: CFuncDecl -> Decl ()
-buildAstFuncDecl (CFunc qn _arity _vis _qty rules) =
-  FunctionDecl NoSpanInfo () name (map (buildAstRule name) rules)
+buildAstFuncDecl :: CFuncDecl -> [Decl ()]
+buildAstFuncDecl (CFunc qn _arity _vis _qty (rule:rules)) =
+  FunctionDecl NoSpanInfo () name [buildAstRule name rule]
+  :buildAstFuncDecl (CFunc qn _arity _vis _qty rules)
   where
   name = mkIdent (snd qn)
   buildAstRule n (CRule ps rhs) =
     Equation NoSpanInfo Nothing
       (FunLhs NoSpanInfo n (map buildAstPattern ps))
       (buildAstRhs rhs)
+buildAstFuncDecl (CFunc _ _ _ _ []) = []
 
 buildAstDecl :: [CFuncDecl] -> [Decl ()]
-buildAstDecl = map buildAstFuncDecl
+buildAstDecl = concatMap buildAstFuncDecl
 
 buildAstRhs :: CRhs -> Rhs ()
 buildAstRhs (CSimpleRhs e ds) =
-  SimpleRhs NoSpanInfo WhitespaceLayout (buildAstExpr e) (map buildAstLocalDecl ds)
+  SimpleRhs NoSpanInfo WhitespaceLayout (buildAstExpr e) (concatMap buildAstLocalDecl ds)
 buildAstRhs (CGuardedRhs gs ds) =
   GuardedRhs NoSpanInfo WhitespaceLayout
     [CondExpr NoSpanInfo (buildAstExpr g) (buildAstExpr e) | (g, e) <- gs]
-    (map buildAstLocalDecl ds)
+    (concatMap buildAstLocalDecl ds)
 
 buildAstStatement :: CStatement -> Statement ()
 buildAstStatement (CSExpr e)  = StmtExpr NoSpanInfo (buildAstExpr e)
 buildAstStatement (CSPat p e) = StmtBind NoSpanInfo (buildAstPattern p) (buildAstExpr e)
-buildAstStatement (CSLet ds)  = StmtDecl NoSpanInfo WhitespaceLayout (map buildAstLocalDecl ds)
+buildAstStatement (CSLet ds)  = StmtDecl NoSpanInfo WhitespaceLayout 
+  (concatMap buildAstLocalDecl ds)
 
 buildAstAlt :: (CPattern, CRhs) -> Alt ()
 buildAstAlt (p, rhs) = Alt NoSpanInfo (buildAstPattern p) (buildAstRhs rhs)
@@ -479,8 +480,8 @@ withPrelude env imports
 
 -- Runs pretty much the same pipeline Modules.hs does, but less checks
 -- this might have to change later, however we won't ever need the splice check ofc...
-compileSplice :: Options -> CompilerEnv -> [ImportDecl] -> String -> Expression () -> TypeExpr
-              -> CYIO FC.Prog
+compileSplice :: Options -> CompilerEnv -> [ImportDecl] -> String -> Expression () 
+              -> TypeExpr -> CYIO FC.Prog
 compileSplice opts env imports modName e typ = do
   let imports' = withPrelude env imports
       mdl0     = createModule imports' modName e typ
