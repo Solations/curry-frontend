@@ -405,6 +405,9 @@ failInfos = map (uncurry mkFailTest)
       , "Unbound type variable c"
       ]
     )
+  , ("SpliceWithoutTC",
+      ["Please use languge-extension template-curry to use splices."]
+    )
   ]
 
 --------------------------------------------------------------------------------
@@ -486,6 +489,8 @@ passInfos = map mkPassTest
   , "UntypedAcy"
   , "Unzip"
   , "WhereAfterDo"
+  , "SimpleSplice"
+  , "SpliceTypes"
   ] ++ map mkPassLitTest
   [ "LiterateImport"
   ]
@@ -584,5 +589,9 @@ warnInfos = map (uncurry mkFailTest)
   , ("UnexportedFunction",
       [ "Unused declaration of variable `q'"
       , "Unused declaration of variable `g'" ]
+    )
+  , ("ImportSplice",
+      ["Function `xOr78' is potentially non-deterministic due to overlapping rules"
+      , "Top-level binding with no type signature: xOr78 :: Prelude.Num a => a -> a"]
     )
   ]
