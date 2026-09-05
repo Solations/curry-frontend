@@ -94,7 +94,7 @@ declResolveSplice opts env is (InstanceDecl x1 x2 cx x4 tys ds) = do
   ds'  <- concatMapM (declResolveSplice opts env is) ds
   return [InstanceDecl x1 x2 cx' x4 tys' ds']
 declResolveSplice opts env is (TopLevelSplice sp e) 
-  | mkMIdent ["templateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
+  | mkMIdent ["TemplateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
     -- Here expression splices are run and evaluated to an actual expression.
     let typ = ListType NoSpanInfo (ConstructorType NoSpanInfo (qualify (mkIdent "CFuncDecl")))
     sDecl <- turnSpliceIntoSpring sp opts env is e typ
@@ -122,7 +122,7 @@ condExprResolveSplice opts env is (CondExpr x1 g e) =
 
 exprResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Expression () -> CYIO (Expression ())
 exprResolveSplice opts env is (ExprSplice sp e)
-  | mkMIdent ["templateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
+  | mkMIdent ["TemplateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
     -- Here expression splices are run and evaluated to an actual expression.
     let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CExpr"))
     sExp <- turnSpliceIntoSpring sp opts env is e typ
@@ -224,7 +224,7 @@ typeExprResolveSplice opts env is (ParenType x1 ty) =
 typeExprResolveSplice opts env is (ForallType x1 vs ty) =
   ForallType x1 vs <$> typeExprResolveSplice opts env is ty
 typeExprResolveSplice opts env is (TypeExprSplice sp e) 
-  | mkMIdent ["templateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
+  | mkMIdent ["TemplateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
     let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CTypeExpr"))
     sTyp <- turnSpliceIntoSpring sp opts env is e typ
     case readMaybe sTyp :: Maybe AC.CTypeExpr of
@@ -385,7 +385,8 @@ buildAstLit (CFloatc f)  = Float f
 buildAstLit (CCharc c)   = Char c
 buildAstLit (CStringc s) = String s
 
-turnSpliceIntoSpring :: SpanInfo -> Options -> CompilerEnv -> [ImportDecl] -> Expression () -> TypeExpr -> CYIO String
+turnSpliceIntoSpring :: SpanInfo -> Options -> CompilerEnv -> [ImportDecl] ->
+  Expression () -> TypeExpr -> CYIO String
 turnSpliceIntoSpring sp opts env is e typ = do
   let useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
       spliceDir = takeDirectory (filePath env)
