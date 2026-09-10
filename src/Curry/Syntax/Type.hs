@@ -292,6 +292,7 @@ data Pattern a
   | LazyPattern        SpanInfo (Pattern a)
   | FunctionPattern    SpanInfo a QualIdent [Pattern a]
   | InfixFuncPattern   SpanInfo a (Pattern a) QualIdent (Pattern a)
+  | PatSplice          SpanInfo (Expression a)
     deriving (Eq, Read, Show, Generic, Binary)
 
 -- |Expression
@@ -423,6 +424,7 @@ instance Functor Pattern where
     FunctionPattern p (f a) f' (map (fmap f) ts)
   fmap f (InfixFuncPattern p a t1 op t2) =
     InfixFuncPattern p (f a) (fmap f t1) op (fmap f t2)
+  fmap f (PatSplice p e) = PatSplice p (fmap f e)
 
 instance Functor Expression where
   fmap f (Literal p a l) = Literal p (f a) l
@@ -851,6 +853,7 @@ instance HasSpanInfo (Pattern a) where
   getSpanInfo (LazyPattern sp _)            = sp
   getSpanInfo (FunctionPattern sp _ _ _)    = sp
   getSpanInfo (InfixFuncPattern sp _ _ _ _) = sp
+  getSpanInfo (PatSplice sp _)              = sp
 
   setSpanInfo sp (LiteralPattern _ a l) = LiteralPattern sp a l
   setSpanInfo sp (NegativePattern _ a l) = NegativePattern sp a l
@@ -865,6 +868,7 @@ instance HasSpanInfo (Pattern a) where
   setSpanInfo sp (LazyPattern _ t) = LazyPattern sp t
   setSpanInfo sp (FunctionPattern _ a f' ts) = FunctionPattern sp a f' ts
   setSpanInfo sp (InfixFuncPattern _ a t1 op t2) = InfixFuncPattern sp a t1 op t2
+  setSpanInfo sp (PatSplice _ e) = PatSplice sp e
 
   updateEndPos p@(LiteralPattern  _ _ _) = p
   updateEndPos p@(NegativePattern _ _ _) = p
@@ -894,6 +898,7 @@ instance HasSpanInfo (Pattern a) where
     setEndPosition (getSrcSpanEnd t) p
   updateEndPos p@(FunctionPattern _ _ _ _) = p
   updateEndPos p@(InfixFuncPattern _ _ _ _ _) = p
+  updateEndPos p@(PatSplice _ _) = p
 
 instance HasSpanInfo (Expression a) where
   getSpanInfo (Literal sp _ _) = sp

@@ -377,6 +377,7 @@ instance Pretty (Pattern a) where
     (sep [pPrintPrec 1 t1 <+> ppQInfixOp f, indent (pPrintPrec 0 t2)])
   pPrintPrec p (RecordPattern       _ _ c fs) = parenIf (p > 1)
     (ppQIdent c <+> record (list (map pPrint fs)))
+  pPrintPrec _ (PatSplice _ e) = text "$(" <> pPrintPrec 0 e <> text ")"
 
 instance Pretty a => Pretty (Field a) where
   pPrint (Field _ l t) = ppQIdent l <+> equals <+> pPrintPrec 0 t

@@ -183,6 +183,8 @@ checkPattern (InfixFuncPattern _ a t1 op t2) = do
           InfixFuncPattern (t1'' @+@ t2'') a t1'' op'' t2''
 checkPattern (RecordPattern       spi a c fs) =
   RecordPattern spi a c <$> mapM (checkField checkPattern) fs
+checkPattern (PatSplice                 _ _) =
+  error "Curry.Checks.PrecCheck.checkPattern: Splice should have been evaluated before PrecCheck was run."
 
 checkRhs :: Rhs a -> PCM (Rhs a)
 checkRhs (SimpleRhs spi li e ds) = withLocalPrecEnv $

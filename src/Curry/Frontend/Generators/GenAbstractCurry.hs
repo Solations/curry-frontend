@@ -366,6 +366,8 @@ trPat (LazyPattern              _ p) = CPLazy <$> trPat p
 trPat (FunctionPattern     _ _ f ps) = CPFuncComb <$> trQual f <*> mapM trPat ps
 trPat (InfixFuncPattern _ a p1 f p2) =
   trPat (FunctionPattern NoSpanInfo a f [p1, p2])
+trPat (PatSplice                _ _) =
+  error "GenAbstractCurry.trPat: No GAC representation for splices."
 
 trField :: (a -> GAC b) -> Field a -> GAC (CField b)
 trField act (Field _ l x) = (,) <$> trQual l <*> act x

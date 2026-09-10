@@ -70,6 +70,8 @@ instance Typeable a => Typeable (Pattern a) where
   typeOf (LazyPattern _ t) = typeOf t
   typeOf (FunctionPattern _ a _ _) = typeOf a
   typeOf (InfixFuncPattern _ a _ _ _) = typeOf a
+  typeOf (PatSplice _ _) =
+    error "Curry.Base.Typing.typeOf: Type can only be determined after Splice has been evaluated to a typable pattern."
 
 instance Typeable a => Typeable (Expression a) where
   typeOf (Literal _ a _) = typeOf a
@@ -337,3 +339,5 @@ patternVars (LazyPattern              _ t) = patternVars t
 patternVars (FunctionPattern     _ _ _ ts) = nub $ concatMap patternVars ts
 patternVars (InfixFuncPattern _ _ t1 _ t2) =
   nub $ patternVars t1 ++ patternVars t2
+patternVars (PatSplice _ _) =
+  error "Curry.Base.Typing.patternVars: Splices should be evaluated before variables can be determined."

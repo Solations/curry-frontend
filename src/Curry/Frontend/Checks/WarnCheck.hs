@@ -680,6 +680,8 @@ simplifyPat (AsPattern             _ _ p) = simplifyPat p
 simplifyPat (LazyPattern             _ _) = return wildPat
 simplifyPat FunctionPattern {}            = return wildPat
 simplifyPat InfixFuncPattern {}           = return wildPat
+simplifyPat (PatSplice               _ _) =
+  error "Curry.Checks.WarnCheck.simplifyPat: Splices should be evaluated before WarnCheck."
 
 getAllLabels :: QualIdent -> WCM (QualIdent, [Ident])
 getAllLabels c = do

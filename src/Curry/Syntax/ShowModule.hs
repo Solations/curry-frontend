@@ -517,6 +517,11 @@ showsConsTerm (RecordPattern spi a qident cfields)
   . showsQualIdent qident . space
   . showsList (showsField showsConsTerm) cfields . space
   . showsString ")"
+showsConsTerm (PatSplice spi expr)
+  = showsString "(PatSplice "
+  . showsSpanInfo spi . space
+  . showsExpression expr
+  . showsString ")"
 
 showsExpression :: Show a => Expression a -> ShowS
 showsExpression (Literal spi a lit)

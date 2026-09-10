@@ -125,6 +125,8 @@ instance QualAnnotExpr Pattern where
     maybe [] (return . (ty',)) (localIdent m op) ++
       concatMap (qafv m) [t1, t2]
     where ty' = foldr (TypeArrow . typeOf) ty [t1, t2]
+  qafv _ (PatSplice          _ _) =
+    error "Curry.Base.AnnotExpr.quafv: All splices should be resolved by now."
 
 filterBv :: QuantExpr e => e -> [(Type, Ident)] -> [(Type, Ident)]
 filterBv e = filter ((`Set.notMember` Set.fromList (bv e)) . snd)

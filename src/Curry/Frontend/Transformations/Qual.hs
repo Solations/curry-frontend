@@ -155,6 +155,8 @@ qPattern (FunctionPattern      spi a f ts) =
   FunctionPattern spi a <$> qIdent f <*> mapM qPattern ts
 qPattern (InfixFuncPattern spi a t1 op t2) =
   InfixFuncPattern spi a <$> qPattern t1 <*> qIdent op <*> qPattern t2
+qPattern (PatSplice                _ _) =
+  error "Curry.Transformations.Qual.qPattern: All splices should be resolved by this time."
 
 qRhs :: Qual (Rhs a)
 qRhs (SimpleRhs spi li e ds) =

@@ -791,7 +791,7 @@ pattern1 = varId <**> identPattern'            -- unqualified
 
 pattern2 :: Parser a Token (Pattern ())
 pattern2 =  literalPattern <|> anonPattern <|> identPattern
-        <|> parenPattern   <|> listPattern <|> lazyPattern
+        <|> parenPattern   <|> listPattern <|> lazyPattern <|> splicePattern
 
 -- literalPattern ::= <integer> | <char> | <float> | <string>
 literalPattern :: Parser a Token (Pattern ())
@@ -1121,12 +1121,16 @@ field p = mkField <$> spanPosition <*> qfun
                   <*> p
   where mkField sp1 q sp2 = updateEndPos . Field (spanInfo sp1 [sp2]) q
 
--- I don't get why we use expr0 here, I also don't get how we found out this actually has to be a splice...
--- I think I have to understand the parser better...
 spliceExpr :: Parser a Token (Expression())
-spliceExpr = mkSplice <$> spliceSp expr0 
+spliceExpr = mkSplice <$> spliceSp expr0
   where
     mkSplice (ex, sp1, sp2) = ExprSplice (getSpanInfo ex') ex'
+      where ex' = updateSpanWithSplice (ex, sp1, sp2)
+
+splicePattern :: Parser a Token (Pattern ())
+splicePattern = mkSplice <$> spliceSp expr0
+  where
+    mkSplice (ex, sp1, sp2) = PatSplice (getSpanInfo ex') ex'
       where ex' = updateSpanWithSplice (ex, sp1, sp2)
 
 -- ---------------------------------------------------------------------------

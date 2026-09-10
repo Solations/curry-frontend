@@ -788,6 +788,8 @@ checkParenPattern _ (FunctionPattern      _ _ _ ts) =
 checkParenPattern o (InfixFuncPattern _ _ t1 op t2) =
   maybe [] (\c -> [(c, op)]) o
   ++ checkParenPattern Nothing t1 ++ checkParenPattern Nothing t2
+checkParenPattern _ (PatSplice                  _ _) =
+  error "Curry.Checks.SyntaxCheck.checkParenPattern: Splice should have been evaluated before SyntaxCheck was run."
 
 checkPattern :: SpanInfo -> Pattern () -> SCM (Pattern ())
 checkPattern _ (LiteralPattern        spi a l) =
@@ -819,6 +821,8 @@ checkPattern _ (FunctionPattern     _ _ _ _) = internalError
   "SyntaxCheck.checkPattern: function pattern not defined"
 checkPattern _ (InfixFuncPattern  _ _ _ _ _) = internalError
   "SyntaxCheck.checkPattern: infix function pattern not defined"
+checkPattern _ (PatSplice              _ _) =
+  error "Curry.Checks.SyntaxCheck.checkPattern: Splice should have been evaluated before SyntaxCheck was run."
 
 checkConstructorPattern :: SpanInfo -> SpanInfo -> QualIdent -> [Pattern ()]
                         -> SCM (Pattern ())
@@ -1140,6 +1144,8 @@ banFPTerm s p pat@(FunctionPattern    _ _ _ _)
  = report $ errUnsupportedFuncPattern s p pat
 banFPTerm s p pat@(InfixFuncPattern _ _ _ _ _)
  = report $ errUnsupportedFuncPattern s p pat
+banFPTerm _ _ (PatSplice                _ _)
+ = error "Curry.Checks.SyntaxCheck.banFPTerm: Splice should have been evaluated before SyntaxCheck was run."
 
 checkOp :: InfixOp a -> SCM (InfixOp a)
 checkOp op = do
@@ -1324,6 +1330,8 @@ checkFPTerm p (RecordPattern      _ _ _ fs) = mapM_ (checkFPTerm p)
                                             [ t | Field _ _ t <- fs ]
 checkFPTerm _ (FunctionPattern         {} ) = ok -- do not check again
 checkFPTerm _ (InfixFuncPattern        {} ) = ok -- do not check again
+checkFPTerm _ (PatSplice               _ _) =
+  error "Curry.Checks.SyntaxCheck.checkFPTerm: Splice should have been evaluated before SyntaxCheck was run."
 
 -- ---------------------------------------------------------------------------
 -- Miscellaneous functions

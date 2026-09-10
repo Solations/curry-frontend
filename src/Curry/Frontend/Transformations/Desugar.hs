@@ -446,6 +446,8 @@ dsFunctionalPatternsNonLinear fvs (LazyPattern             spi t) =
   fmap (LazyPattern spi) <$> dsFunctionalPatternsNonLinear fvs t
 dsFunctionalPatternsNonLinear _ p@FunctionPattern {}  = internalError $ "Desugar.dsFunctionalPatternsNonLinear: functional pattern " ++ show p
 dsFunctionalPatternsNonLinear _ p@InfixFuncPattern {} = internalError $ "Desugar.dsFunctionalPatternsNonLinear: functional pattern " ++ show p
+dsFunctionalPatternsNonLinear _ (PatSplice _ _) =
+  error "Curry.Transformations.Desugar.dsFunctionalPatternsNonLinear: Splices can't be desugared and also don't have to be. By the time desugaring is executed splices should already be evaluated."
 
 funPats :: Pattern PredType -> DsM ([((PredType, Ident), Pattern PredType)], Pattern PredType)
 funPats p@LiteralPattern {}  = return ([], p)
@@ -480,6 +482,8 @@ funPats fp@FunctionPattern {}  = do
 funPats fp@InfixFuncPattern {} = do
   v <- freshVar "#funpat" fp
   return ([(v, fp)], uncurry (VariablePattern NoSpanInfo) v)
+funPats (PatSplice _ _) =
+  error "Curry.Transformations.Desugar.funPats: Splices can't be desugared and also don't have to be. By the time desugaring is executed splices should already be evaluated."
 
 fp2Expr :: Pattern PredType -> (Expression PredType, [Expression PredType])
 fp2Expr (LiteralPattern          _ pty l) = (Literal NoSpanInfo  pty l, [])
@@ -579,6 +583,8 @@ dsNonLinear env (LazyPattern               _ t) =
   second (LazyPattern NoSpanInfo) <$> dsNonLinear env t
 dsNonLinear _   FunctionPattern {}  = internalError "Desugar.dsNonLinear: function pattern"
 dsNonLinear _   InfixFuncPattern {} = internalError "Desugar.dsNonLinear: infix function pattern"
+dsNonLinear _   (PatSplice _ _) =
+  error "Curry.Transformations.Desugar.dsNonLinear: Splices can't be desugared and also don't have to be. By the time desugaring is executed splices should already be evaluated."
 
 mkStrictEquality :: Ident -> (PredType, Ident) -> Expression PredType
 mkStrictEquality x (pty, y) = mkVar pty x =:= mkVar pty y
@@ -659,6 +665,8 @@ dsPat inEq ds (FunctionPattern   _   pty f ts) =
   second (FunctionPattern NoSpanInfo pty f) <$> mapAccumM (dsPat inEq) ds ts
 dsPat inEq ds (InfixFuncPattern _ pty t1 f t2) =
   dsPat inEq ds (FunctionPattern NoSpanInfo pty f [t1, t2])
+dsPat _    _  (PatSplice _ _) =
+  error "Curry.Transformations.Desugar.dsPat: Splices can't be desugared and also don't have to be. By the time desugaring is executed splices should already be evaluated."
 
 dsAs :: Ident -> ([Decl PredType], Pattern PredType)
      -> ([Decl PredType], Pattern PredType)

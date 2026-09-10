@@ -431,6 +431,7 @@ idsPat (FunctionPattern    _ _ qid ps) =
   Function FuncCall False qid : concatMap idsPat ps
 idsPat (InfixFuncPattern  _ _ p1 f p2) =
   idsPat p1 ++ Function FuncInfix False f : idsPat p2
+idsPat (PatSplice                _ e) = idsExpr e
 
 idsExpr :: Expression a -> [Code]
 idsExpr (Literal              _ _ _) = []

@@ -1314,6 +1314,8 @@ tcPatternHelper p _ t@(InfixFuncPattern spi a t1 op t2) = do
       pls'' <- lift $ improvePreds pls'
       return (pls'', ty, InfixFuncPattern spi a' t1' op' t2')
     _ -> internalError "TypeCheck.tcPatternHelper: Not a functionPattern after desugaring"
+tcPatternHelper _ _ (PatSplice _ _) =
+  error "Curry.Checks.TypeCheck.tcPatternHelper: Splice should have been evaluated before TypeCheck was run."
 
 tcFuncPattern :: HasSpanInfo p => p -> SpanInfo -> Doc -> QualIdent
               -> ([Pattern PredType] -> [Pattern PredType])
@@ -1942,6 +1944,8 @@ reportFlexibleContextPattern _ FunctionPattern {}  =
   report $ internalError "TypeCheck.reportFlexibleContextPattern"
 reportFlexibleContextPattern _ InfixFuncPattern {} =
   report $ internalError "TypeCheck.reportFlexibleContextPattern"
+reportFlexibleContextPattern _ (PatSplice _ _) =
+  error "Curry.Checks.TypeCheck.reportFlexibleContextPattern: Splice should have been evaluated before TypeCheck was run."
 
 -------------------------------------------------------------------------------
 -- Improving Substitutions

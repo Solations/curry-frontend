@@ -170,6 +170,8 @@ instance QuantExpr (Pattern a) where
   bv (LazyPattern              _ t) = bv t
   bv (FunctionPattern     _ _ _ ts) = nub $ bv ts
   bv (InfixFuncPattern _ _ t1 _ t2) = nub $ bv t1 ++ bv t2
+  bv (PatSplice                _ _) =
+    error "Curry.Base.Expr.bv: Bound variables should be calculated after Splices are evaluated."
 
 instance QualExpr (Pattern a) where
   qfv _ LiteralPattern {}               = []
@@ -187,6 +189,8 @@ instance QualExpr (Pattern a) where
     = maybe [] return (localIdent m f) ++ qfv m ts
   qfv m (InfixFuncPattern _ _ t1 op t2)
     = maybe [] return (localIdent m op) ++ qfv m [t1, t2]
+  qfv _ (PatSplice                _ _)
+    = error "Curry.Base.Expr.qfv: Free variables should be calculated after Splices are evaluated."
 
 instance Expr Constraint where
   fv (Constraint _ _ tys) = fv tys

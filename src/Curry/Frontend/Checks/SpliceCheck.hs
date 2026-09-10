@@ -29,7 +29,7 @@ import Curry.Base.Position
 import Curry.Base.Monad (CYIO, failMessages, runCYIO)
 
 import qualified Curry.FlatCurry as FC (Prog, writeFlatCurry)
-import qualified Curry.AbstractCurry as AC (CExpr, CFuncDecl, CTypeExpr)
+import qualified Curry.AbstractCurry as AC (CExpr, CFuncDecl, CTypeExpr, CPattern)
 import Curry.Files.Filenames (flatName, addOutDirModule)
 import System.FilePath (takeDirectory, (</>))
 
@@ -80,8 +80,9 @@ declResolveSplice opts env is (TypeSig x1 x2 qty) =
   (:[]) . TypeSig x1 x2 <$> qualTypeExprResolveSplice opts env is qty
 declResolveSplice opts env is (FunctionDecl x1 x2 x3 eqs) =
   (:[]) . FunctionDecl x1 x2 x3 <$> mapM (eqResolveSplice opts env is) eqs
-declResolveSplice opts env is (PatternDecl x1 x2 rhs) =
-  (:[]) . PatternDecl x1 x2 <$> rhsResolveSplice opts env is rhs
+declResolveSplice opts env is (PatternDecl x1 x2 rhs) = (:[]) <$>
+  (PatternDecl x1 <$> patResolveSplice opts env is x2
+                  <*> rhsResolveSplice opts env is rhs)
 declResolveSplice opts env is (DefaultDecl x1 tys) =
   (:[]) . DefaultDecl x1 <$> mapM (typeExprResolveSplice opts env is) tys
 declResolveSplice opts env is (ClassDecl x1 x2 cx x4 x5 x6 ds) = do
@@ -105,8 +106,20 @@ declResolveSplice opts env is (TopLevelSplice sp e)
 declResolveSplice _ _ _ decl = return [decl]
 
 eqResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Equation () -> CYIO (Equation ())
-eqResolveSplice opts env is (Equation x1 x2 x3 rhs) =
-  Equation x1 x2 x3 <$> rhsResolveSplice opts env is rhs
+eqResolveSplice opts env is (Equation x1 x2 lhs rhs) =
+  Equation x1 x2 <$> lhsResolveSplice opts env is lhs
+                 <*> rhsResolveSplice opts env is rhs
+
+lhsResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Lhs () -> CYIO (Lhs ())
+lhsResolveSplice opts env is (FunLhs x1 f ps) =
+  FunLhs x1 f <$> mapM (patResolveSplice opts env is) ps
+lhsResolveSplice opts env is (OpLhs x1 p1 op p2) =
+  (\p1' p2' -> OpLhs x1 p1' op p2')
+    <$> patResolveSplice opts env is p1
+    <*> patResolveSplice opts env is p2
+lhsResolveSplice opts env is (ApLhs x1 lhs ps) =
+  ApLhs x1 <$> lhsResolveSplice opts env is lhs
+           <*> mapM (patResolveSplice opts env is) ps
 
 rhsResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Rhs () -> CYIO (Rhs ())
 rhsResolveSplice opts env is (SimpleRhs x1 x2 e ds) =
@@ -172,8 +185,9 @@ exprResolveSplice opts env is (LeftSection x1 e x2) =
   (\e' -> LeftSection x1 e' x2) <$> exprResolveSplice opts env is e
 exprResolveSplice opts env is (RightSection x1 x2 e) =
   RightSection x1 x2 <$> exprResolveSplice opts env is e
-exprResolveSplice opts env is (Lambda x1 x2 e) =
-  Lambda x1 x2 <$> exprResolveSplice opts env is e
+exprResolveSplice opts env is (Lambda x1 pats e) =
+  Lambda x1 <$> mapM (patResolveSplice opts env is) pats
+            <*> exprResolveSplice opts env is e
 exprResolveSplice opts env is (Let x1 x2 ds e) =
   Let x1 x2 <$> concatMapM (declResolveSplice opts env is) ds
             <*> exprResolveSplice opts env is e
@@ -199,12 +213,54 @@ stmtResolveSplice opts env is (StmtExpr x1 e) =
   StmtExpr x1 <$> exprResolveSplice opts env is e
 stmtResolveSplice opts env is (StmtDecl x1 x2 ds) =
   StmtDecl x1 x2 <$> concatMapM (declResolveSplice opts env is) ds
-stmtResolveSplice opts env is (StmtBind x1 x2 e) =
-  StmtBind x1 x2 <$> exprResolveSplice opts env is e
+stmtResolveSplice opts env is (StmtBind x1 pat e) =
+  StmtBind x1 <$> patResolveSplice opts env is pat
+              <*> exprResolveSplice opts env is e
 
 altResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Alt () -> CYIO (Alt ())
-altResolveSplice opts env is (Alt x1 x2 rhs) =
-  Alt x1 x2 <$> rhsResolveSplice opts env is rhs
+altResolveSplice opts env is (Alt x1 pat rhs) =
+  Alt x1 <$> patResolveSplice opts env is pat
+         <*> rhsResolveSplice opts env is rhs
+
+patResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> Pattern () -> CYIO (Pattern ())
+patResolveSplice opts env is (PatSplice sp e)
+  | mkMIdent ["TemplateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
+    let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CPattern"))
+    sPat <- turnSpliceIntoSpring sp opts env is e typ
+    case readMaybe sPat :: Maybe AC.CPattern of
+      Just acPat -> return (buildAstPattern acPat)
+      Nothing    -> error "Error compiling splice."
+  | otherwise = error "Please use languge-extension template-curry to use splices."
+patResolveSplice opts env is (ConstructorPattern x1 x2 c ps) =
+  ConstructorPattern x1 x2 c <$> mapM (patResolveSplice opts env is) ps
+patResolveSplice opts env is (InfixPattern x1 x2 p1 c p2) =
+  (\p1' p2' -> InfixPattern x1 x2 p1' c p2')
+    <$> patResolveSplice opts env is p1
+    <*> patResolveSplice opts env is p2
+patResolveSplice opts env is (ParenPattern x1 p) =
+  ParenPattern x1 <$> patResolveSplice opts env is p
+patResolveSplice opts env is (RecordPattern x1 x2 c fs) =
+  RecordPattern x1 x2 c <$> mapM (patFieldResolveSplice opts env is) fs
+patResolveSplice opts env is (TuplePattern x1 ps) =
+  TuplePattern x1 <$> mapM (patResolveSplice opts env is) ps
+patResolveSplice opts env is (ListPattern x1 x2 ps) =
+  ListPattern x1 x2 <$> mapM (patResolveSplice opts env is) ps
+patResolveSplice opts env is (AsPattern x1 v p) =
+  AsPattern x1 v <$> patResolveSplice opts env is p
+patResolveSplice opts env is (LazyPattern x1 p) =
+  LazyPattern x1 <$> patResolveSplice opts env is p
+patResolveSplice opts env is (FunctionPattern x1 x2 f ps) =
+  FunctionPattern x1 x2 f <$> mapM (patResolveSplice opts env is) ps
+patResolveSplice opts env is (InfixFuncPattern x1 x2 p1 f p2) =
+  (\p1' p2' -> InfixFuncPattern x1 x2 p1' f p2')
+    <$> patResolveSplice opts env is p1
+    <*> patResolveSplice opts env is p2
+patResolveSplice _ _ _ p = return p -- LiteralPattern, NegativePattern, VariablePattern
+
+patFieldResolveSplice :: Options -> CompilerEnv -> [ImportDecl]
+                       -> Field (Pattern ()) -> CYIO (Field (Pattern ()))
+patFieldResolveSplice opts env is (Field x1 x2 p) =
+  Field x1 x2 <$> patResolveSplice opts env is p
 
 typeExprResolveSplice :: Options -> CompilerEnv -> [ImportDecl] -> TypeExpr -> CYIO TypeExpr
 typeExprResolveSplice _ _ _ ty@(ConstructorType _ _) = return ty
