@@ -1121,8 +1121,6 @@ field p = mkField <$> spanPosition <*> qfun
                   <*> p
   where mkField sp1 q sp2 = updateEndPos . Field (spanInfo sp1 [sp2]) q
 
--- I don't get why we use expr0 here, I also don't get how we found out this actually has to be a splice...
--- I think I have to understand the parser better...
 spliceExpr :: Parser a Token (Expression())
 spliceExpr = mkSplice <$> spliceSp expr0 
   where

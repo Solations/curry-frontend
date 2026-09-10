@@ -97,7 +97,7 @@ declResolveSplice opts env is (TopLevelSplice sp e)
   | mkMIdent ["TemplateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
     -- Here expression splices are run and evaluated to an actual expression.
     let typ = ListType NoSpanInfo (ConstructorType NoSpanInfo (qualify (mkIdent "CFuncDecl")))
-    sDecl <- turnSpliceIntoSpring sp opts env is e typ
+    sDecl <- turnSpliceIntoString sp opts env is e typ
     case readMaybe sDecl :: Maybe [AC.CFuncDecl] of
       Just acDecl -> return (buildAstDecl acDecl)
       Nothing     -> error "Error compiling splice."
@@ -125,7 +125,7 @@ exprResolveSplice opts env is (ExprSplice sp e)
   | mkMIdent ["TemplateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
     -- Here expression splices are run and evaluated to an actual expression.
     let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CExpr"))
-    sExp <- turnSpliceIntoSpring sp opts env is e typ
+    sExp <- turnSpliceIntoString sp opts env is e typ
     case readMaybe sExp :: Maybe AC.CExpr of
       Just acExpr -> return (buildAstExpr acExpr)
       Nothing     -> error "Error compiling splice."
@@ -226,7 +226,7 @@ typeExprResolveSplice opts env is (ForallType x1 vs ty) =
 typeExprResolveSplice opts env is (TypeExprSplice sp e) 
   | mkMIdent ["TemplateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
     let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CTypeExpr"))
-    sTyp <- turnSpliceIntoSpring sp opts env is e typ
+    sTyp <- turnSpliceIntoString sp opts env is e typ
     case readMaybe sTyp :: Maybe AC.CTypeExpr of
       Just acTyp -> return (buildAstTypeExpr acTyp)
       Nothing   -> error "Error compiling splice."
@@ -320,11 +320,15 @@ buildAstLocalDecl (CLocalPat p rhs) = [PatternDecl NoSpanInfo (buildAstPattern p
 buildAstLocalDecl (CLocalVars vns)  = [FreeDecl NoSpanInfo (map (Var () . buildAstIdent) vns)]
 
 buildAstFuncDecl :: CFuncDecl -> [Decl ()]
-buildAstFuncDecl (CFunc qn _arity _vis _qty (rule:rules)) =
-  FunctionDecl NoSpanInfo () name [buildAstRule name rule]
-  :buildAstFuncDecl (CFunc qn _arity _vis _qty rules)
+buildAstFuncDecl (CFunc qn _arity _vis qualType (rule:rules)) =
+  TypeSig NoSpanInfo [name] (buildAstQualTypeExpr qualType)
+  :buildAstFuncDecl' (rule:rules)
   where
   name = mkIdent (snd qn)
+  buildAstFuncDecl' (rule:rules) = 
+    FunctionDecl NoSpanInfo () name [buildAstRule name rule]
+    :buildAstFuncDecl' rules
+  buildAstFuncDecl' [] = []
   buildAstRule n (CRule ps rhs) =
     Equation NoSpanInfo Nothing
       (FunLhs NoSpanInfo n (map buildAstPattern ps))
@@ -385,9 +389,9 @@ buildAstLit (CFloatc f)  = Float f
 buildAstLit (CCharc c)   = Char c
 buildAstLit (CStringc s) = String s
 
-turnSpliceIntoSpring :: SpanInfo -> Options -> CompilerEnv -> [ImportDecl] ->
+turnSpliceIntoString :: SpanInfo -> Options -> CompilerEnv -> [ImportDecl] ->
   Expression () -> TypeExpr -> CYIO String
-turnSpliceIntoSpring sp opts env is e typ = do
+turnSpliceIntoString sp opts env is e typ = do
   let useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
       spliceDir = takeDirectory (filePath env)
       modName     = moduleName (moduleIdent env) ++ "Splice" ++ positionTag sp
@@ -480,7 +484,6 @@ withPrelude env imports
   preludeImport   = ImportDecl NoSpanInfo preludeMIdent False Nothing Nothing
 
 -- Runs pretty much the same pipeline Modules.hs does, but less checks
--- this might have to change later, however we won't ever need the splice check ofc...
 compileSplice :: Options -> CompilerEnv -> [ImportDecl] -> String -> Expression () 
               -> TypeExpr -> CYIO FC.Prog
 compileSplice opts env imports modName e typ = do
