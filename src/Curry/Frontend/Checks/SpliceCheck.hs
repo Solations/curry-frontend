@@ -96,10 +96,10 @@ declResolveSplice opts env is (InstanceDecl x1 x2 cx x4 tys ds) = do
 declResolveSplice opts env is (TopLevelSplice sp e) 
   | mkMIdent ["TemplateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
     -- Here expression splices are run and evaluated to an actual expression.
-    let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CFuncDecl"))
+    let typ = ListType NoSpanInfo (ConstructorType NoSpanInfo (qualify (mkIdent "CFuncDecl")))
     sDecl <- turnSpliceIntoString sp opts env is e typ
-    case readMaybe sDecl :: Maybe AC.CFuncDecl of
-      Just acDecl -> return (buildAstFuncDecl acDecl)
+    case readMaybe sDecl :: Maybe [AC.CFuncDecl] of
+      Just acDecl -> return (buildAstDecl acDecl)
       Nothing     -> error "Error compiling splice."
   | otherwise = error "Please use languge-extension template-curry to use splices."
 declResolveSplice _ _ _ decl = return [decl]
