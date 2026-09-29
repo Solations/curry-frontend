@@ -151,7 +151,6 @@ isSimpleType (ListType      _  ty) = isVariableType ty
 isSimpleType (ArrowType _ ty1 ty2) = isVariableType ty1 && isVariableType ty2
 isSimpleType (ParenType     _  ty) = isSimpleType ty
 isSimpleType (ForallType       {}) = False
--- Maybe even an error...
 isSimpleType (TypeExprSplice  _ _) = False
 
 -- |Return the qualified type constructor of a type expression.
@@ -167,7 +166,7 @@ typeConstr (VariableType       _ _) =
 typeConstr (ForallType          {}) =
   error "Curry.Syntax.Utils.typeConstr: forall type"
 typeConstr (TypeExprSplice     _ _) =
-  error "Curry.Syntax.Utils.typeConstr: tpye expression splice"
+  error "Curry.Syntax.Utils.typeConstr: type expression splice"
 
 -- |Return the list of variables occurring in a type expression.
 typeVariables :: TypeExpr -> [Ident]
@@ -192,7 +191,6 @@ containsForall (ListType           _ ty) = containsForall ty
 containsForall (ArrowType     _ ty1 ty2) = containsForall ty1 || containsForall ty2
 containsForall (ParenType          _ ty) = containsForall ty
 containsForall (ForallType           {}) = True
--- Maybe even error: Wait for Splice to be run or smth
 containsForall (TypeExprSplice      _ _) = False
 
 -- |Return the identifier of a variable.
