@@ -584,7 +584,9 @@ instance HasSpanInfo (Decl a) where
         oEnd = last $ getSrcSpanEnd qcls : map getSrcSpanEnd inst
         ends = filter (/= NoPos) $ oEnd : sipEnd
     in if null ends then d else setEndPosition (maximum ends) d
-  updateEndPos d@(TopLevelSplice _ _) = d
+  updateEndPos d@(TopLevelSplice spi _) = 
+    let endPos = end $ last $ getSrcInfoPoints spi
+    in setEndPosition endPos d
 
   getLayoutInfo (ClassDecl _ li _ _ _ _ _) = li
   getLayoutInfo (InstanceDecl _ li _ _ _ _) = li
@@ -759,7 +761,9 @@ instance HasSpanInfo TypeExpr where
     setEndPosition (end (last (s:ss))) t
   updateEndPos t@(ParenType _ _) = t
   updateEndPos t@(ForallType _ _ _) = t -- not a parseable type
-  updateEndPos t@(TypeExprSplice _ _) = t
+  updateEndPos t@(TypeExprSplice spi _) = 
+    let endPos = end $ last $ getSrcInfoPoints spi
+    in setEndPosition endPos t
 
 instance HasSpanInfo QualTypeExpr where
   getSpanInfo (QualTypeExpr sp _ _) = sp
@@ -1010,7 +1014,9 @@ instance HasSpanInfo (Expression a) where
   updateEndPos e@(Case (SpanInfo _ (s:ss)) _ _ _ _) =
     setEndPosition (end (last (s:ss))) e
   updateEndPos e@(Case _ _ _ _ _) = e
-  updateEndPos e@(ExprSplice _ _) = e -- This might be 100% incorrect, loooool 
+  updateEndPos e@(ExprSplice spi _) = 
+    let endPos = end $ last $ getSrcInfoPoints spi
+    in setEndPosition endPos e
 
   getLayoutInfo (Let _ li _ _) = li
   getLayoutInfo (Do _ li _ _) = li
