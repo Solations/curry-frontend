@@ -387,7 +387,6 @@ idsTypeExpr (ArrowType   _ ty1 ty2) = concatMap idsTypeExpr [ty1, ty2]
 idsTypeExpr (ParenType        _ ty) = idsTypeExpr ty
 idsTypeExpr (ForallType    _ vs ty) =
   map (Identifier IdDeclare False . qualify) vs ++ Symbol "." : idsTypeExpr ty
--- Check
 idsTypeExpr (TypeExprSplice     _ e) = idsExpr e
 
 idsFieldDecl :: FieldDecl -> [Code]
