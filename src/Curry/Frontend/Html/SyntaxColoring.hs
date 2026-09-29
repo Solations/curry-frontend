@@ -333,7 +333,6 @@ idsDecl (ClassDecl _ _ cx c vs fds ds) =
 idsDecl (InstanceDecl _ _ cx c tys ds) = idsContext cx ++
   TypeCons TypeRefer False c : concatMap idsTypeExpr tys ++
   concatMap idsInstanceDecl ds
--- Ckeck
 idsDecl (TopLevelSplice        _ e) = idsExpr e
 
 idsConstrDecl :: ConstrDecl -> [Code]
@@ -461,7 +460,6 @@ idsExpr (Let               _ _ ds e) = concatMap idsDecl ds ++ idsExpr e
 idsExpr (Do             _ _ stmts e) = concatMap idsStmt stmts ++ idsExpr e
 idsExpr (IfThenElse      _ e1 e2 e3) = concatMap idsExpr [e1, e2, e3]
 idsExpr (Case          _ _ _ e alts) = idsExpr e ++ concatMap idsAlt alts
--- Check
 idsExpr (ExprSplice              _ e) = idsExpr e
 
 idsField :: (a -> [Code]) -> Field a -> [Code]
