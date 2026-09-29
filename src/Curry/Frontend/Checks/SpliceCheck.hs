@@ -40,6 +40,7 @@ import Curry.Base.SpanInfo
 import Curry.Files.Filenames (addOutDirModule, flatName)
 import qualified Curry.FlatCurry as FC (Prog, writeFlatCurry)
 import Curry.Frontend.Base.Messages (Message)
+import Curry.Frontend.Base.Types (PredType)
 import qualified Curry.Frontend.Checks.ExportCheck as EC (expandExports)
 import qualified Curry.Frontend.Checks.PrecCheck as PC (precCheck)
 import qualified Curry.Frontend.Checks.SyntaxCheck as SC (syntaxCheck)
@@ -107,7 +108,7 @@ declResolveSplice opts env is (TopLevelSplice sp e)
   | mkMIdent ["TemplateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
       -- Here expression splices are run and evaluated to an actual expression.
       let typ = ListType NoSpanInfo (ConstructorType NoSpanInfo (qualify (mkIdent "CFuncDecl")))
-      sDecl <- turnSpliceIntoString sp opts env is e typ
+      sDecl <- evalSplice sp opts env is e typ
       case readMaybe sDecl :: Maybe [AC.CFuncDecl] of
         Just acDecl -> return (buildAstDecl acDecl)
         Nothing -> error "Error compiling splice."
@@ -137,7 +138,7 @@ exprResolveSplice opts env is (ExprSplice sp e)
   | mkMIdent ["TemplateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
       -- Here expression splices are run and evaluated to an actual expression.
       let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CExpr"))
-      sExp <- turnSpliceIntoString sp opts env is e typ
+      sExp <- evalSplice sp opts env is e typ
       case readMaybe sExp :: Maybe AC.CExpr of
         Just acExpr -> return (buildAstExpr acExpr)
         Nothing -> error "Error compiling splice."
@@ -255,7 +256,7 @@ typeExprResolveSplice opts env is (ForallType x1 vs ty) =
 typeExprResolveSplice opts env is (TypeExprSplice sp e)
   | mkMIdent ["TemplateCurry"] `elem` [m | ImportDecl _ m _ _ _ <- is] = do
       let typ = ConstructorType NoSpanInfo (qualify (mkIdent "CTypeExpr"))
-      sTyp <- turnSpliceIntoString sp opts env is e typ
+      sTyp <- evalSplice sp opts env is e typ
       case readMaybe sTyp :: Maybe AC.CTypeExpr of
         Just acTyp -> return (buildAstTypeExpr acTyp)
         Nothing -> error "Error compiling splice."
@@ -435,7 +436,7 @@ buildAstLit (CFloatc f) = Float f
 buildAstLit (CCharc c) = Char c
 buildAstLit (CStringc s) = String s
 
-turnSpliceIntoString ::
+evalSplice ::
   SpanInfo ->
   Options ->
   CompilerEnv ->
@@ -443,7 +444,7 @@ turnSpliceIntoString ::
   Expression () ->
   TypeExpr ->
   CYIO String
-turnSpliceIntoString sp opts env is e typ = do
+evalSplice sp opts env is e typ = do
   let useSubDir = addOutDirModule (optUseOutDir opts) (optOutDir opts) (moduleIdent env)
       spliceDir = takeDirectory (filePath env)
       modName = moduleName (moduleIdent env) ++ "Splice" ++ positionTag sp
@@ -562,15 +563,21 @@ compileSplice ::
   CYIO FC.Prog
 compileSplice opts env imports modName e typ = do
   let imports' = withPrelude env imports
-      mdl0 = createModule imports' modName e typ
-  env0 <- importModules mdl0 (interfaceEnv env) imports'
+      mdl = createModule imports' modName e typ
+  env0 <- importModules mdl (interfaceEnv env) imports'
 
-  let env0' = env0 {extensions = extensions env}
+  let env1 = env0 {extensions = extensions env}
 
+  (env2, mdl1) <- checkModule env1 mdl
+
+  transformModule opts env2 mdl1
+
+checkModule :: CompilerEnv -> Module () -> CYIO (CompilerEnv, Module PredType)
+checkModule env mdl = do
   let ((mdl1, exts1), msgs1) =
-        SC.syntaxCheck (extensions env0') (tyConsEnv env0') (valueEnv env0') mdl0
+        SC.syntaxCheck (extensions env) (tyConsEnv env) (valueEnv env) mdl
   unless (null msgs1) $ failMessages msgs1
-  let env1 = env0' {extensions = exts1}
+  let env1 = env {extensions = exts1}
 
   let Module spi li ps mid es is ds1 = mdl1
       (ds2, pEnv2, msgs2) = PC.precCheck mid (opPrecEnv env1) ds1
@@ -591,8 +598,12 @@ compileSplice opts env imports modName e typ = do
       es' = EC.expandExports mid (aliasEnv env3) (tyConsEnv env3) vEnv3 es
       mdl3 = Module spi li ps mid (Just es') is ds3
 
+  return (env3, mdl3)
+
+transformModule :: Options -> CompilerEnv -> Module PredType -> CYIO FC.Prog
+transformModule opts env mdl = do
   let optOpts = optOptimizations opts
-      qualified = qual (env3, mdl3)
+      qualified = qual (env, mdl)
       derived = derive qualified
       desugared = desugar derived
       dicts = insertDicts (optInlineDictionaries optOpts) desugared
@@ -602,6 +613,4 @@ compileSplice opts env imports modName e typ = do
       il = ilTrans lifted
       (ilEnv, ilMdl) = completeCase (optAddFailed optOpts) il
 
-      afcy = genAnnotatedFlatCurry (optRemoveUnusedImports optOpts) ilEnv ntMdl ilMdl
-
-  return $ genFlatCurry afcy
+  return $ genFlatCurry $ genAnnotatedFlatCurry (optRemoveUnusedImports optOpts) ilEnv ntMdl ilMdl
