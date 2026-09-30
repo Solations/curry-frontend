@@ -69,12 +69,20 @@ resultStartMarker, resultEndMarker :: String
 resultStartMarker = "===SPLICE-RESULT-START==="
 resultEndMarker = "===SPLICE-RESULT-END==="
 
+-------------------------------------------------------------------------------
+-- Splice Check
+-------------------------------------------------------------------------------
+
 spliceCheck :: Options -> CompilerEnv -> Module () -> IO (Module (), [Message])
 spliceCheck opts env m = do
   (result, warnings) <- runCYIO (resolveSplice opts env m)
   case result of
     Left errs -> return (m, errs)
     Right m' -> return (m', warnings)
+
+-------------------------------------------------------------------------------
+-- Find and evaluate splices
+-------------------------------------------------------------------------------
 
 resolveSplice :: Options -> CompilerEnv -> Module () -> CYIO (Module ())
 resolveSplice opts env (Module x1 x2 x3 x4 x5 x6 ds) =
@@ -300,6 +308,10 @@ fieldDeclResolveSplice ::
 fieldDeclResolveSplice opts env is (FieldDecl x1 ls ty) =
   FieldDecl x1 ls <$> typeExprResolveSplice opts env is ty
 
+-------------------------------------------------------------------------------
+-- Functions for building an AST from FlatCurry.
+-------------------------------------------------------------------------------
+
 buildAstExpr :: CExpr -> Expression ()
 buildAstExpr (CVar vn) =
   Variable NoSpanInfo () (qualify (buildAstIdent vn))
@@ -436,6 +448,15 @@ buildAstLit (CFloatc f) = Float f
 buildAstLit (CCharc c) = Char c
 buildAstLit (CStringc s) = String s
 
+splitModuleName :: String -> [String]
+splitModuleName s = case break (== '.') s of
+  (m, '.' : rest) -> m : splitModuleName rest
+  (m, _) -> [m]
+
+-------------------------------------------------------------------------------
+-- Functions for evaluating splices.
+-------------------------------------------------------------------------------
+
 evalSplice ::
   SpanInfo ->
   Options ->
@@ -458,11 +479,6 @@ evalSplice sp opts env is e typ = do
         ++ "_"
         ++ show (column (start (srcSpan sp)))
 
-splitModuleName :: String -> [String]
-splitModuleName s = case break (== '.') s of
-  (m, '.' : rest) -> m : splitModuleName rest
-  (m, _) -> [m]
-
 runSplice :: FilePath -> String -> IO String
 runSplice spliceDir ident = do
   out <-
@@ -481,9 +497,11 @@ extractResult output =
   let afterStart = drop 1 $ dropWhile (/= resultStartMarker) (lines output)
    in unlines (takeWhile (/= resultEndMarker) afterStart)
 
--- For now we don't need more code than the expression itself.
--- We do still of course need imports...
------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- Functions for creating a module from a splice's expression.
+-- This module is used to evaluate the splice.
+-------------------------------------------------------------------------------
+
 createModule :: [ImportDecl] -> String -> Expression () -> TypeExpr -> Module ()
 createModule imports name e typ =
   Module
@@ -552,7 +570,11 @@ withPrelude env imports
     importedModules = [m | ImportDecl _ m _ _ _ <- imports]
     preludeImport = ImportDecl NoSpanInfo preludeMIdent False Nothing Nothing
 
--- Runs pretty much the same pipeline Modules.hs does, but less checks
+-------------------------------------------------------------------------------
+-- Functions for compiling the modules created from splices to FlatCurry.
+-- We run pretty much the same pipeline Modules.hs does, but less checks.
+-------------------------------------------------------------------------------
+
 compileSplice ::
   Options ->
   CompilerEnv ->
