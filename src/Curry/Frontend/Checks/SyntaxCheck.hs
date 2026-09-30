@@ -1027,6 +1027,8 @@ checkExpr p (IfThenElse     spi e1 e2 e3) =
   IfThenElse spi <$> checkExpr p e1 <*> checkExpr p e2 <*> checkExpr p e3
 checkExpr p (Case       spi li ct e alts) =
   Case spi li ct <$> checkExpr p e <*> mapM checkAlt alts
+checkExpr _ (ExprSplice _ _)              = 
+  error "Curry.Checks.SyntaxCheck.checkExpr: Splice should have been evaluated before SyntaxCheck was run."
 
 checkLambda :: SpanInfo -> SpanInfo -> [Pattern ()] -> Expression ()
             -> SCM (Expression ())

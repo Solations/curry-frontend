@@ -202,6 +202,7 @@ data Category
   | RightArrow   -- ->
   | Tilde        -- ~
   | DoubleArrow  -- =>
+  | SplInit      -- $(
 
   -- special identifiers
   | Id_as
@@ -317,6 +318,7 @@ instance Show Token where
   showsPrec _ (Token Colon              _) = showsEscaped ":"
   showsPrec _ (Token DotDot             _) = showsEscaped ".."
   showsPrec _ (Token DoubleArrow        _) = showsEscaped "=>"
+  showsPrec _ (Token SplInit            _) = showsEscaped "$("
   showsPrec _ (Token DoubleColon        _) = showsEscaped "::"
   showsPrec _ (Token Equals             _) = showsEscaped "="
   showsPrec _ (Token Backslash          _) = showsEscaped "\\"
@@ -626,6 +628,7 @@ lexToken :: Lexer Token a
 lexToken suc _    sp []       = suc sp (tok EOF) sp []
 lexToken suc fail sp cs@(c:s)
   | take 3 cs == "#-}" = suc sp (tok PragmaEnd) (incrSpan sp 3) (drop 3 cs)
+  | take 2 cs == "$("  = suc sp (tok SplInit) (incrSpan sp 2) (drop 2 cs)
   | c == '('           = token LeftParen
   | c == ')'           = token RightParen
   | c == ','           = token Comma

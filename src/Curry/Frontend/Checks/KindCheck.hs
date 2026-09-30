@@ -148,6 +148,8 @@ instance HasType (Decl a) where
   fts m (ClassDecl       _ _ cx _ _ _ ds) = fts m cx . fts m ds
   fts m (InstanceDecl _ _ cx cls inst ds) =
     fts m cx . fts m cls . fts m inst . fts m ds
+  fts _ (TopLevelSplice              _ _) =
+    error "Curry.Checks.KindCheck.fts: Splice should have been evaluated before KindCheck was run."
 
 instance HasType ConstrDecl where
   fts m (ConstrDecl     _ _ tys) = fts m tys
@@ -176,6 +178,8 @@ instance HasType TypeExpr where
   fts m (ArrowType      _ ty1 ty2) = (arrowId :) . fts m ty1 . fts m ty2
   fts m (ParenType           _ ty) = fts m ty
   fts m (ForallType        _ _ ty) = fts m ty
+  fts _ (TypeExprSplice       _ _) =
+    error "Curry.Checks.KindCheck.fts: Splice should have been evaluated before KindCheck was run."
 
 instance HasType (Equation a) where
   fts m (Equation _ _ _ rhs) = fts m rhs
@@ -212,6 +216,8 @@ instance HasType (Expression a) where
   fts m (Do             _ _ stms e) = fts m stms . fts m e
   fts m (IfThenElse     _ e1 e2 e3) = fts m e1 . fts m e2 . fts m e3
   fts m (Case           _ _ _ e as) = fts m e . fts m as
+  fts _ (ExprSplice            _ _) =
+    error "Curry.Checks.KindCheck.fts: Splice should have been evaluated before KindCheck was run."
 
 instance HasType (Statement a) where
   fts m (StmtExpr _    e) = fts m e
@@ -475,6 +481,8 @@ kcDecl tcEnv clsEnv (InstanceDecl p _ cx qcls inst ds) = do
     where
       what = "instance declaration"
       doc = pPrint (InstanceDecl p WhitespaceLayout cx qcls inst [])
+kcDecl _ _ (TopLevelSplice _ _) =
+  error "Curry.Checks.KindCheck.kcDecl: Splice should have been evaluated before KindCheck was run."
 
 kcConstrDecl :: TCEnv -> ConstrDecl -> KCM ()
 kcConstrDecl tcEnv d@(ConstrDecl _ _ tys) = do
@@ -567,6 +575,8 @@ kcExpr tcEnv clsEnv (IfThenElse _ e1 e2 e3) = do
 kcExpr tcEnv clsEnv (Case _ _ _ e alts) = do
   kcExpr tcEnv clsEnv e
   mapM_ (kcAlt tcEnv clsEnv) alts
+kcExpr _ _ (ExprSplice _ _) =
+  error "Curry.Checks.KindCheck.kcExpr: Splice should have been evaluated before KindCheck was run."
 
 kcStmt :: TCEnv -> ClassEnv -> Statement a -> KCM ()
 kcStmt tcEnv clsEnv (StmtExpr _ e) = kcExpr tcEnv clsEnv e
@@ -681,6 +691,8 @@ kcTypeExpr tcEnv what doc n (ParenType _ ty) = kcTypeExpr tcEnv what doc n ty
 kcTypeExpr tcEnv what doc n (ForallType _ vs ty) = do
   tcEnv' <- foldM bindFreshKind tcEnv vs
   kcTypeExpr tcEnv' what doc n ty
+kcTypeExpr _ _ _ _ (TypeExprSplice _ _) =
+  error "Curry.Checks.KindCheck.kcTypeExpr: Splice should have been evaluated before KindCheck was run."
 
 kcArrow :: HasSpanInfo p => p -> String -> Doc -> Kind -> KCM (Kind, Kind)
 kcArrow p what doc k = do
@@ -785,6 +797,8 @@ desugarTypeExpr (ListType spi ty) = ApplyType spi (ConstructorType spi qListId)
                                                   (desugarTypeExpr ty)
 desugarTypeExpr (ParenType spi ty)      = ParenType spi (desugarTypeExpr ty)
 desugarTypeExpr (ForallType spi vs ty)  = ForallType spi vs (desugarTypeExpr ty)
+desugarTypeExpr (TypeExprSplice _ _)    =
+  error "Curry.Checks.KindCheck.desugarTypeExpr: Splice should have been evaluated before KindCheck was run."
 
 -- ---------------------------------------------------------------------------
 -- Error messages

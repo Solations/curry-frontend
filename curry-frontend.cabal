@@ -115,6 +115,7 @@ library
     , Curry.Frontend.Checks.InterfaceSyntaxCheck
     , Curry.Frontend.Checks.KindCheck
     , Curry.Frontend.Checks.PrecCheck
+    , Curry.Frontend.Checks.SpliceCheck
     , Curry.Frontend.Checks.SyntaxCheck
     , Curry.Frontend.Checks.TypeCheck
     , Curry.Frontend.Checks.TypeSyntaxCheck

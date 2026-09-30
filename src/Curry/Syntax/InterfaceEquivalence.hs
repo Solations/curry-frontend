@@ -205,6 +205,8 @@ instance FixInterface TypeExpr where
   fix tcs (ArrowType  spi ty1 ty2) = ArrowType spi (fix tcs ty1) (fix tcs ty2)
   fix tcs (ParenType       spi ty) = ParenType spi (fix tcs ty)
   fix tcs (ForallType   spi vs ty) = ForallType spi vs (fix tcs ty)
+  fix _   (TypeExprSplice     _ _) = 
+    error "Curry.Syntax.InterfaceEquivalence.fix: Tpye expression splice must be evaluated before fixing."
 
 typeConstructors :: [IDecl] -> [Ident]
 typeConstructors ds = [tc | (QualIdent _ Nothing tc) <- foldr tyCons [] ds]

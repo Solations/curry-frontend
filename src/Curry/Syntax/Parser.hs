@@ -321,7 +321,7 @@ topDecls = topDecl `sepBySp` semicolon
 topDecl :: Parser a Token (Decl ())
 topDecl = choice [ dataDecl, externalDataDecl, newtypeDecl, typeDecl
                  , classDecl, instanceDecl, defaultDecl
-                 , infixDecl, functionDecl ]
+                 , infixDecl, functionDecl, topLevelSplice ]
 
 dataDecl :: Parser a Token (Decl ())
 dataDecl = combineWithSpans
@@ -586,6 +586,12 @@ instanceDecl = mkInstance
       InstanceDecl (SpanInfo sp1 (sp1 : (ss ++ [sp2]))) li cx qcls inst ds
     mkInstance (sp1, ss, cx, qcls, inst) (Nothing, ds, li) = updateEndPos $
       InstanceDecl (SpanInfo sp1 (sp1 : ss)) li cx qcls inst ds
+
+topLevelSplice :: Parser a Token (Decl ())
+topLevelSplice = mkSplice <$> spliceSp expr0
+  where
+  mkSplice (e, sp1, sp2) = TopLevelSplice (getSpanInfo e') e'
+    where e' = updateSpanWithSplice (e, sp1, sp2)
 -- ---------------------------------------------------------------------------
 -- Type classes
 -- ---------------------------------------------------------------------------
@@ -661,9 +667,9 @@ type1 = foldl1 mkApplyType <$> many1 type2
   where mkApplyType ty1 ty2 = updateEndPos $
           ApplyType (fromSrcSpan (getSrcSpan ty1)) ty1 ty2
 
--- type2 ::= anonType | identType | parenType | bracketType
+-- type2 ::= anonType | identType | parenType | bracketType | spliceType
 type2 :: Parser a Token TypeExpr
-type2 = anonType <|> identType <|> parenType <|> bracketType
+type2 = anonType <|> identType <|> parenType <|> bracketType <|> spliceType
 
 -- anonType ::= '_'
 anonType :: Parser a Token TypeExpr
@@ -711,6 +717,13 @@ bracketType = fmap updateSpanWithBrackets (bracketsSp listType)
 listType :: Parser a Token TypeExpr
 listType = ListType NoSpanInfo <$> type0
              `opt` ConstructorType NoSpanInfo qListId
+
+-- spliceType ::= $(type)
+spliceType :: Parser a Token TypeExpr
+spliceType = mkTypeExprSplice <$> spliceSp expr0
+  where
+  mkTypeExprSplice (ex, sp1, sp2) = TypeExprSplice (getSpanInfo ex') ex'
+    where ex' = updateSpanWithSplice (ex, sp1, sp2)
 
 -- ---------------------------------------------------------------------------
 -- Literals
@@ -954,7 +967,7 @@ expr3 = foldl mkRecordUpdate <$> expr4 <*> many recUpdate
 
 expr4 :: Parser a Token (Expression ())
 expr4 = choice
-  [constant, anonFreeVariable, variable, parenExpr, listExpr]
+  [constant, anonFreeVariable, variable, parenExpr, listExpr, spliceExpr]
 
 constant :: Parser a Token (Expression ())
 constant = mkLiteral <$> spanPosition <*> literal
@@ -1107,6 +1120,12 @@ field p = mkField <$> spanPosition <*> qfun
                   <*> spanPosition <*-> expectEquals
                   <*> p
   where mkField sp1 q sp2 = updateEndPos . Field (spanInfo sp1 [sp2]) q
+
+spliceExpr :: Parser a Token (Expression())
+spliceExpr = mkSplice <$> spliceSp expr0 
+  where
+    mkSplice (ex, sp1, sp2) = ExprSplice (getSpanInfo ex') ex'
+      where ex' = updateSpanWithSplice (ex, sp1, sp2)
 
 -- ---------------------------------------------------------------------------
 -- \paragraph{Statements in list comprehensions and \texttt{do} expressions}
@@ -1398,6 +1417,29 @@ backquotesSp p = (\sp1 b sp2 -> (b, sp1, sp2))
                    <*> p
                    <*> spanPosition <*-> expectBackquote
 
+
+-- ---------------------------------------------------------------------------
+-- Splice combinators
+-- ---------------------------------------------------------------------------
+
+splice :: Parser a Token b -> Parser a Token b
+splice p = between splInit p rightParen
+
+spliceSp :: Parser a Token b -> Parser a Token (b, Span, Span)
+spliceSp p = (\sp1 b sp2 -> (b, sp1, sp2))
+                <$> tokenSpan SplInit
+                <*> p
+                <*> tokenSpan RightParen
+
+updateSpanWithSplice :: HasSpanInfo a => (a, Span, Span) -> a
+updateSpanWithSplice (ex, sp1, sp2) =
+  let ss = getSrcInfoPoints ex
+      s  = getPosition sp1
+      e  = end sp2
+      f  = file s
+      spi = spanInfo (Span f s e) (sp1 : (ss ++ [sp2]))
+  in setSpanInfo spi ex
+
 -- ---------------------------------------------------------------------------
 -- Simple token parsers
 -- ---------------------------------------------------------------------------
@@ -1456,3 +1498,6 @@ leftBrace = token LeftBrace
 
 rightBrace :: Parser a Token Attributes
 rightBrace = token RightBrace
+
+splInit :: Parser a Token Attributes
+splInit = token SplInit

@@ -105,6 +105,9 @@ instance Typeable a => Typeable (Expression a) where
   typeOf (IfThenElse _ _ e _) = typeOf e
   typeOf (Case _ _ _ _ []) = internalError "Base.Typing.typeOf: empty case alternative"
   typeOf (Case _ _ _ _ (a:_)) = typeOf a
+  -- ToDo: Check
+  typeOf (ExprSplice     _ _) = 
+    error "Curry.Base.Typing.typeOf: Type can only be determined after Splice has been evaluated to an typable expression."
 
 instance Typeable a => Typeable (Alt a) where
   typeOf (Alt _ _ rhs) = typeOf rhs

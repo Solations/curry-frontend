@@ -761,6 +761,8 @@ toType' tvs (CS.ForallType _ tvs' ty) tys
   | otherwise = applyType (TypeForall (map (toVar tvs) tvs')
                                       (toType' tvs ty []))
                           tys
+toType' _ (CS.TypeExprSplice _ _) _ =
+  error "Curry.Base.Types.toType': After Splices are evaluated there should not be any type splices left."
 
 toVar :: Map.Map Ident Int -> Ident -> Int
 toVar tvs tv = case Map.lookup tv tvs of

@@ -263,6 +263,8 @@ checkType (ArrowType  spi ty1 ty2) =
   liftM2 (ArrowType spi) (checkType ty1) (checkType ty2)
 checkType (ParenType      spi  ty) = liftM (ParenType spi) (checkType ty)
 checkType (ForallType   spi vs ty) = liftM (ForallType spi vs) (checkType ty)
+checkType (TypeExprSplice     _ _) =
+  error "Curry.Checks.InterfaceSyntaxCheck.checkType: Splice should have been evaluated before InterfaceSyntaxCheck was run."
 
 checkClosed :: [Ident] -> TypeExpr -> ISC ()
 checkClosed _   (ConstructorType _ _) = return ()
@@ -274,6 +276,8 @@ checkClosed tvs (ListType       _ ty) = checkClosed tvs ty
 checkClosed tvs (ArrowType _ ty1 ty2) = mapM_ (checkClosed tvs) [ty1, ty2]
 checkClosed tvs (ParenType      _ ty) = checkClosed tvs ty
 checkClosed tvs (ForallType  _ vs ty) = checkClosed (tvs ++ vs) ty
+checkClosed _ (TypeExprSplice    _ _) =
+  error "Curry.Checks.InterfaceSyntaxCheck.checkClosed: Splice should have been evaluated before InterfaceSyntaxCheck was run."
 
 checkTypeConstructor :: SpanInfo -> QualIdent -> ISC TypeExpr
 checkTypeConstructor spi tc = do
@@ -358,6 +362,8 @@ typeVars (ListType            _ ty) = typeVars ty
 typeVars (ArrowType      _ ty1 ty2) = typeVars ty1 ++ typeVars ty2
 typeVars (ParenType           _ ty) = typeVars ty
 typeVars (ForallType       _ vs ty) = vs ++ typeVars ty
+typeVars (TypeExprSplice       _ _) =
+  error "Curry.Checks.InterfaceSyntaxCheck.typeVars: Splice should have been evaluated before InterfaceSyntaxCheck was run."
 
 
 -- ---------------------------------------------------------------------------
